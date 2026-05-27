@@ -24,5 +24,15 @@ __all__ = [
     "ErrorLayer",
     "LogLayer",
     "Agent",
+    "AgentBuilder",
 ]
+
+
+def __getattr__(name: str):
+    # Lazy import to avoid circular dependency: builder imports Agent (this
+    # module's alias for LogLayer), which is defined above.
+    if name == "AgentBuilder":
+        from agentfactory.builder import AgentBuilder
+        return AgentBuilder
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 __version__ = "0.0.1"

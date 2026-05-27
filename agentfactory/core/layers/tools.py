@@ -93,7 +93,7 @@ class ToolLayer(IOLayer):
     # --- cross-slot consistency -------------------------------------------
 
     @model_validator(mode="after")
-    def _check_consistency(self) -> Self:
+    def _check_tool_consistency(self) -> Self:
         # Aliases must not collide with real tool keys or with each other's targets
         # in a way that creates ambiguity.
         for alias in self.aliases:

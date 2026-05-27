@@ -236,7 +236,7 @@ class ModelLayer(BaseAgent):
     # --- cross-slot consistency --------------------------------------------
 
     @model_validator(mode="after")
-    def _check_consistency(self) -> Self:
+    def _check_model_consistency(self) -> Self:
         # Primary should not appear in its own fallback chain — that's a
         # config bug, not a graceful degradation.
         if self.primary in self.fallback_chain:

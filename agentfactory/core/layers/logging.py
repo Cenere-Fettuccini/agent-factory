@@ -118,7 +118,7 @@ class LogLayer(ErrorLayer):
 
     @field_validator("primary_sink")
     @classmethod
-    def _validate_primary(cls, v: str) -> str:
+    def _validate_primary_sink(cls, v: str) -> str:
         if not SINK_REGISTRY.has(v):
             raise ValueError(
                 f"primary_sink {v!r} is not in SINK_REGISTRY "
