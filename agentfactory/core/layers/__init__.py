@@ -3,15 +3,22 @@ agent contract chain. Layers are imported by consumers in dependency order:
 ``model -> io -> tools -> policy -> errors -> logging``.
 """
 
+from agentfactory.core.layers.io import (
+    Encoding,
+    IOFieldSpec,
+    IOLayer,
+    IOSchema,
+    StreamingMode,
+)
 from agentfactory.core.layers.model import (
     CacheStrategy,
+    CostBudgetRouting,
     GenerationParams,
+    LatencyRouting,
     ModelLayer,
     RoutingPolicy,
-    StaticRouting,
     SizeBasedRouting,
-    CostBudgetRouting,
-    LatencyRouting,
+    StaticRouting,
 )
 
 __all__ = [
@@ -23,4 +30,9 @@ __all__ = [
     "SizeBasedRouting",
     "CostBudgetRouting",
     "LatencyRouting",
+    "IOLayer",
+    "IOFieldSpec",
+    "IOSchema",
+    "Encoding",
+    "StreamingMode",
 ]
