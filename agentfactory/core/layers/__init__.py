@@ -10,6 +10,7 @@ from agentfactory.core.layers.io import (
     IOSchema,
     StreamingMode,
 )
+from agentfactory.core.layers.tools import ToolLayer
 from agentfactory.core.layers.model import (
     CacheStrategy,
     CostBudgetRouting,
@@ -35,4 +36,5 @@ __all__ = [
     "IOSchema",
     "Encoding",
     "StreamingMode",
+    "ToolLayer",
 ]

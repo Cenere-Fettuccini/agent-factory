@@ -16,6 +16,7 @@ from agentfactory.core.catalog.models import (
     CoreModel,
     ModelDescriptor,
 )
+from agentfactory.core.catalog.tools import TOOL_REGISTRY, ToolDescriptor
 
 __all__ = [
     "MODEL_REGISTRY",
@@ -28,4 +29,6 @@ __all__ = [
     "ToolCall",
     "ToolResult",
     "Citation",
+    "TOOL_REGISTRY",
+    "ToolDescriptor",
 ]

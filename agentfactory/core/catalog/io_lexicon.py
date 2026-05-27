@@ -7,14 +7,12 @@ the layers of natural language:
   json, file ref, image ref.
 * **Composites** (morphemes): structured units assembled from primitives —
   Message, Decision, ToolCall, ToolResult, Citation.
+* **Schemas** (sentences): :class:`IOFieldSpec` and :class:`IOSchema` —
+  composition surfaces that reference primitives/composites by key.
 
-Both tiers are registered in ``IO_REGISTRY`` as :class:`IOTypeDescriptor`
-entries so the IOLayer's schemas can reference them by key. The descriptors
-also know which concrete Pydantic model (or primitive validator) backs each
-key, which is what the executor uses at runtime to coerce and validate values.
-
-Schemas (sentences) live one level up in :mod:`agentfactory.core.layers.io`
-because they're composed *by* the agent, not shipped with the framework.
+All three tiers live in the catalog layer so that downstream catalogs (tools,
+errors, sinks) can use schemas without depending on layer modules. Layers
+re-export the schema types for convenience.
 """
 
 from __future__ import annotations
@@ -22,7 +20,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, ClassVar, Final, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from agentfactory.core.registry import Registry
 
@@ -171,3 +169,89 @@ def _bootstrap_core() -> None:
 
 
 _bootstrap_core()
+
+
+# ---------------------------------------------------------------------------
+# Schema composition (top tier of the lexicon)
+# ---------------------------------------------------------------------------
+
+
+class IOFieldSpec(BaseModel):
+    """One field in an IOSchema. References a lexicon type by key."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    type_key: str = Field(
+        ...,
+        description="Key into IO_REGISTRY identifying the value's IO type.",
+    )
+    required: bool = True
+    repeated: bool = False
+    nullable: bool = False
+    description: str = Field(default="", max_length=512)
+
+    @field_validator("type_key")
+    @classmethod
+    def _validate_type_key(cls, v: str) -> str:
+        if not IO_REGISTRY.has(v):
+            raise ValueError(
+                f"IO type {v!r} is not in IO_REGISTRY "
+                f"(core: {IO_REGISTRY.core_keys()}, "
+                f"ext: {IO_REGISTRY.extension_keys()})"
+            )
+        return v
+
+
+class IOSchema(BaseModel):
+    """A named composition of IOFieldSpecs. Used for both input and output."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    name: str = Field(..., min_length=1, max_length=128)
+    fields: dict[str, IOFieldSpec] = Field(..., min_length=1)
+
+    @field_validator("fields")
+    @classmethod
+    def _validate_field_names(
+        cls, v: dict[str, IOFieldSpec]
+    ) -> dict[str, IOFieldSpec]:
+        for fname in v:
+            if not fname or not fname.isidentifier():
+                raise ValueError(
+                    f"schema field name {fname!r} must be a valid Python identifier"
+                )
+        return v
+
+    def validate_payload(
+        self, payload: dict[str, Any], *, strict: bool
+    ) -> dict[str, Any]:
+        """Validate a raw payload against this schema. Returns a coerced copy."""
+        coerced: dict[str, Any] = {}
+        for fname, spec in self.fields.items():
+            if fname not in payload:
+                if spec.required:
+                    raise ValueError(f"missing required field {fname!r}")
+                continue
+            value = payload[fname]
+            if value is None:
+                if not spec.nullable:
+                    raise ValueError(f"field {fname!r} is not nullable")
+                coerced[fname] = None
+                continue
+            desc = IO_REGISTRY.get(spec.type_key)
+            if spec.repeated:
+                if not isinstance(value, (list, tuple)):
+                    raise TypeError(
+                        f"field {fname!r} is repeated; expected list, got "
+                        f"{type(value).__name__}"
+                    )
+                coerced[fname] = [desc.validate_value(v) for v in value]
+            else:
+                coerced[fname] = desc.validate_value(value)
+        if strict:
+            unknown = set(payload) - set(self.fields)
+            if unknown:
+                raise ValueError(
+                    f"unknown fields in strict schema: {sorted(unknown)}"
+                )
+        return coerced
