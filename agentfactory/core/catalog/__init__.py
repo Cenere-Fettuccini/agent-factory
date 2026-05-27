@@ -11,6 +11,7 @@ from agentfactory.core.catalog.io_lexicon import (
     ToolCall,
     ToolResult,
 )
+from agentfactory.core.catalog.errors import ERROR_REGISTRY, ErrorClassDescriptor
 from agentfactory.core.catalog.models import (
     MODEL_REGISTRY,
     CoreModel,
@@ -31,4 +32,6 @@ __all__ = [
     "Citation",
     "TOOL_REGISTRY",
     "ToolDescriptor",
+    "ERROR_REGISTRY",
+    "ErrorClassDescriptor",
 ]

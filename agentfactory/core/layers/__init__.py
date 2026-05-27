@@ -10,6 +10,13 @@ from agentfactory.core.layers.io import (
     IOSchema,
     StreamingMode,
 )
+from agentfactory.core.layers.errors import (
+    CircuitBreaker,
+    ErrorLayer,
+    EscalationRule,
+    PartialResultPolicy,
+    RetryPolicy,
+)
 from agentfactory.core.layers.policy import PolicyLayer, RateLimit, TimeBudget
 from agentfactory.core.layers.tools import ToolLayer
 from agentfactory.core.layers.model import (
@@ -41,4 +48,9 @@ __all__ = [
     "PolicyLayer",
     "RateLimit",
     "TimeBudget",
+    "ErrorLayer",
+    "RetryPolicy",
+    "EscalationRule",
+    "CircuitBreaker",
+    "PartialResultPolicy",
 ]
