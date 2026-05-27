@@ -17,6 +17,7 @@ from agentfactory.core.layers.errors import (
     PartialResultPolicy,
     RetryPolicy,
 )
+from agentfactory.core.layers.logging import LogLayer, RedactionRule, SamplingRule
 from agentfactory.core.layers.policy import PolicyLayer, RateLimit, TimeBudget
 from agentfactory.core.layers.tools import ToolLayer
 from agentfactory.core.layers.model import (
@@ -53,4 +54,7 @@ __all__ = [
     "EscalationRule",
     "CircuitBreaker",
     "PartialResultPolicy",
+    "LogLayer",
+    "SamplingRule",
+    "RedactionRule",
 ]

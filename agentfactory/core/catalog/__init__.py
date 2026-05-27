@@ -12,6 +12,7 @@ from agentfactory.core.catalog.io_lexicon import (
     ToolResult,
 )
 from agentfactory.core.catalog.errors import ERROR_REGISTRY, ErrorClassDescriptor
+from agentfactory.core.catalog.sinks import SINK_REGISTRY, SinkDescriptor
 from agentfactory.core.catalog.models import (
     MODEL_REGISTRY,
     CoreModel,
@@ -34,4 +35,6 @@ __all__ = [
     "ToolDescriptor",
     "ERROR_REGISTRY",
     "ErrorClassDescriptor",
+    "SINK_REGISTRY",
+    "SinkDescriptor",
 ]
