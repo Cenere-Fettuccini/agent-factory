@@ -114,12 +114,37 @@ trace.get_tracer_provider().add_span_processor(
 Because span attributes follow OpenInference conventions, Langfuse, Phoenix,
 Arize, and Logfire all render the spans natively — no translation layer.
 
-## Out of scope (Era I)
+## AgentComposer API (Era II)
 
-- HTTP authoring service (Era II — `AgentComposer API`).
+A stateless HTTP authoring backend lives in the `composer/` package. It imports
+the framework and exposes its catalogs, layer schemas, and validation over HTTP
+— the framework never imports `composer`. Install the API extra and run it:
+
+```bash
+pip install -e ".[api]"
+uvicorn composer.app:app --reload
+```
+
+Every request carries its own graph (nodes = agents, edges = "A calls B"); the
+server holds no session state. Endpoints:
+
+| Method & path | Purpose |
+| --- | --- |
+| `GET /node-types` | JSON Schema for every layer, derived live from the Pydantic classes |
+| `GET /catalogs` | Every catalog (models, io_types, tools, errors, sinks) as JSON |
+| `POST /graph/validate` | Structural validation — endpoints exist, recursion within limits |
+| `POST /presets/resolve` | Fill unset fields from descriptions, propagate edge wiring |
+| `POST /agents/preview` | Build one agent, return its frozen describe-output |
+| `POST /export/dry-run` | Instantiate every agent in the graph in-memory |
+| `POST /export` | Write a folder (frozen JSON + loader per agent + `__init__.py` + graph snapshot) |
+
+The exported tree imports with only `agentfactory` installed — zero runtime
+dependency on the API.
+
+## Out of scope (so far)
+
 - Visual editor (Era III — `Agent Studio UI`).
-- Multi-agent graph resolution, export-to-disk, dry-run-graph.
 - Importing existing Langfuse-traced runs back into the contract.
 
 See [docs/eras.html](docs/eras.html) for the full three-era roadmap. See
-[docs/HANDOFF.md](docs/HANDOFF.md) for the implementation spec.
+[docs/HANDOFF.md](docs/HANDOFF.md) for the Era I implementation spec.

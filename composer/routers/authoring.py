@@ -1,0 +1,54 @@
+"""Authoring endpoints: validate, resolve, preview, dry-run, export."""
+
+from __future__ import annotations
+
+from fastapi import APIRouter, HTTPException
+
+from composer.export import ExportError, ExportResult, export_graph
+from composer.graph_validation import ValidationResult, validate_graph
+from composer.preview import (
+    DryRunResult,
+    PreviewResult,
+    dry_run,
+    preview_agent,
+)
+from composer.resolver import resolve
+from composer.schemas.graph import Graph, GraphNode
+from composer.schemas.requests import ExportRequest
+
+router = APIRouter(tags=["authoring"])
+
+
+@router.post("/graph/validate")
+def post_graph_validate(graph: Graph) -> ValidationResult:
+    """Structurally validate a graph (no agents instantiated)."""
+    return validate_graph(graph)
+
+
+@router.post("/presets/resolve")
+def post_presets_resolve(graph: Graph) -> Graph:
+    """Fill unset fields and propagate edge wiring. Returns a new graph."""
+    return resolve(graph)
+
+
+@router.post("/agents/preview")
+def post_agents_preview(node: GraphNode) -> PreviewResult:
+    """Build one agent and return its frozen describe-output."""
+    return preview_agent(node)
+
+
+@router.post("/export/dry-run")
+def post_export_dry_run(graph: Graph) -> DryRunResult:
+    """Validate and instantiate every agent in memory, writing nothing."""
+    return dry_run(graph)
+
+
+@router.post("/export")
+def post_export(request: ExportRequest) -> ExportResult:
+    """Write the graph to a folder. Refuses dangerous destinations."""
+    try:
+        return export_graph(
+            request.graph, request.destination, overwrite=request.overwrite
+        )
+    except ExportError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
