@@ -1,38 +1,14 @@
-"""AgentFactory — a typed, layered framework for building well-bounded agents."""
+"""AgentFactory — a typed, layered framework for well-bounded agents."""
 
-from agentfactory.core.base import BaseAgent
-from agentfactory.core.layers import (
-    ErrorLayer,
-    IOLayer,
-    LogLayer,
-    ModelLayer,
-    PolicyLayer,
-    ToolLayer,
-)
+from __future__ import annotations
 
-# The fully-composed concrete agent type. Convention: when users want "an
-# agent", they import this — it sits at the bottom of the inheritance chain
-# and carries every dimension of the contract.
-Agent = LogLayer
+from agentfactory import catalog as _catalog
+from agentfactory.agent import Agent
+from agentfactory.base import AgentFactoryError
+from agentfactory.builder import AgentBuilder
 
-__all__ = [
-    "BaseAgent",
-    "ModelLayer",
-    "IOLayer",
-    "ToolLayer",
-    "PolicyLayer",
-    "ErrorLayer",
-    "LogLayer",
-    "Agent",
-    "AgentBuilder",
-]
+# Seed every catalog with its defaults on import so construction-time
+# validation has something to check against.
+_catalog.seed_defaults()
 
-
-def __getattr__(name: str):
-    # Lazy import to avoid circular dependency: builder imports Agent (this
-    # module's alias for LogLayer), which is defined above.
-    if name == "AgentBuilder":
-        from agentfactory.builder import AgentBuilder
-        return AgentBuilder
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-__version__ = "0.0.1"
+__all__ = ["Agent", "AgentBuilder", "AgentFactoryError"]

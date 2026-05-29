@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AgentFactory — Three Eras</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #161922;
+    --panel-2: #1c2030;
+    --ink: #e6e8ee;
+    --muted: #9aa3b2;
+    --era1: #7cc4ff;
+    --era2: #76d49a;
+    --era3: #b794ff;
+    --border: #2a3042;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif; }
+  header { padding: 64px 24px 24px; max-width: 1040px; margin: 0 auto; }
+  header h1 { margin: 0 0 10px; font-size: 44px; letter-spacing: -0.02em; }
+  header p.lede { color: var(--muted); font-size: 17px; max-width: 760px; margin: 0; }
+  main { max-width: 1040px; margin: 0 auto; padding: 8px 24px 96px; }
+
+  .era {
+    margin: 40px 0;
+    border-radius: 18px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    background: var(--panel);
+  }
+  .era-head {
+    padding: 28px 32px 26px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.03), transparent);
+    border-bottom: 1px solid var(--border);
+  }
+  .era-head .label {
+    display: inline-block;
+    font: 700 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+    text-transform: uppercase; letter-spacing: 0.16em;
+    padding: 5px 9px; border-radius: 999px;
+    margin-bottom: 12px;
+  }
+  .era[data-era="1"] .label { color: var(--era1); border: 1px solid var(--era1); }
+  .era[data-era="2"] .label { color: var(--era2); border: 1px solid var(--era2); }
+  .era[data-era="3"] .label { color: var(--era3); border: 1px solid var(--era3); }
+  .era[data-era="1"] .accent-bar { background: var(--era1); }
+  .era[data-era="2"] .accent-bar { background: var(--era2); }
+  .era[data-era="3"] .accent-bar { background: var(--era3); }
+
+  .era h2 { margin: 0 0 6px; font-size: 30px; letter-spacing: -0.015em; }
+  .era .tag-line { color: var(--muted); font-size: 15px; margin: 0; }
+  .era-body { padding: 24px 32px 30px; }
+  .accent-bar { height: 3px; width: 56px; border-radius: 2px; margin: 14px 0 22px; opacity: 0.85; }
+
+  .focus {
+    background: var(--panel-2);
+    border-left: 3px solid currentColor;
+    padding: 14px 18px; border-radius: 6px;
+    margin: 4px 0 24px;
+    font-size: 15.5px;
+  }
+  .era[data-era="1"] .focus { color: var(--era1); }
+  .era[data-era="2"] .focus { color: var(--era2); }
+  .era[data-era="3"] .focus { color: var(--era3); }
+  .focus strong { color: var(--ink); }
+  .focus span { color: var(--ink); }
+
+  h3.section {
+    font-size: 12px; text-transform: uppercase; letter-spacing: 0.12em;
+    color: var(--muted); margin: 26px 0 12px;
+  }
+
+  ul { margin: 0; padding-left: 22px; }
+  li { margin: 6px 0; }
+  code {
+    font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+    background: var(--panel-2); padding: 1px 6px; border-radius: 5px;
+    border: 1px solid var(--border);
+  }
+
+  .outcome {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    margin: 12px 0;
+    background: rgba(255,255,255,0.015);
+  }
+  .outcome > div { padding: 16px 20px; }
+  .outcome .want {
+    border-right: 1px solid var(--border);
+    background: rgba(255,255,255,0.02);
+  }
+  .outcome .how { background: transparent; }
+  .outcome h4 {
+    margin: 0 0 8px;
+    font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--muted); font-weight: 700;
+  }
+  .outcome p { margin: 0; font-size: 14.5px; }
+  .outcome .want p { color: var(--ink); font-weight: 500; }
+  .outcome .how p { color: var(--muted); }
+  .outcome .how p strong { color: var(--ink); font-weight: 600; }
+
+  .end {
+    background: rgba(118, 212, 154, 0.07);
+    border-left: 3px solid #76d49a;
+    padding: 14px 18px; border-radius: 6px;
+    margin-top: 26px;
+  }
+  .end strong { color: #76d49a; }
+
+  footer { color: var(--muted); text-align: center; padding: 24px; font-size: 13px; }
+  a { color: var(--era1); }
+  @media (max-width: 760px) {
+    header h1 { font-size: 34px; }
+    .era h2 { font-size: 24px; }
+    .era-head, .era-body { padding-left: 22px; padding-right: 22px; }
+    .outcome { grid-template-columns: 1fr; }
+    .outcome .want { border-right: none; border-bottom: 1px solid var(--border); }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>AgentFactory — Three Eras</h1>
+  <p class="lede">Each era is a set of outcomes you have to land, paired with the approach for getting there. The point isn't <em>which files exist</em> — it's what becomes true about the system once that era is finished.</p>
+</header>
+
+<main>
+
+<!-- ============================================================ -->
+<!-- ERA 1: AgentFactory                                          -->
+<!-- ============================================================ -->
+<section class="era" data-era="1">
+  <div class="era-head">
+    <span class="label">Era I · The Framework</span>
+    <h2>AgentFactory</h2>
+    <p class="tag-line">The typed, layered Python framework built on PydanticAI, with native OpenTelemetry tracing. What an agent <em>is</em>, and how to run one.</p>
+  </div>
+  <div class="era-body">
+    <div class="accent-bar"></div>
+
+    <div class="focus">
+      <strong>Focus.</strong> <span>Make misconfiguration impossible at construction time and make execution mechanical. Everything downstream — the API, the UI, exported projects — leans on the guarantees this era establishes.</span>
+    </div>
+
+    <h3 class="section">Outcomes &amp; how to achieve them</h3>
+
+    <div class="outcome">
+      <div class="want">
+        <h4>Outcome</h4>
+        <p>"Is this an agent?" is a meaningful, framework-wide yes/no.</p>
+      </div>
+      <div class="how">
+        <h4>How</h4>
+        <p>Anchor every type to a single immutable identity model with identity fields only (id, name, version, description, tags). <strong>No behavior on identity</strong> — behavior belongs to layer models that compose with it. Make every layer and the final <code>Agent</code> <code>frozen=True, extra="forbid"</code> so the answer doesn't change after the fact.</p>
+      </div>
+    </div>
+
+    <div class="outcome">
+      <div class="want">
+        <h4>Outcome</h4>
+        <p>No magic strings anywhere in user code.</p>
+      </div>
+      <div class="how">
+        <h4>How</h4>
+        <p>Stand up authoritative catalogs (models, tools, errors, sinks, IO types) behind a registry. <strong>Every field that names a thing</strong> — a model id, a tool grant, an error class — gets validated against its catalog at construction. If it isn't catalogued, it doesn't exist.</p>
+      </div>
+    </div>
+
+    <div class="outcome">
+      <div class="want">
+        <h4>Outcome</h4>
+        <p>Misconfiguration fails fast and loudly — never at the first runtime call.</p>
+      </div>
+      <div class="how">
+        <h4>How</h4>
+        <p>Compose the agent contract from six independent layer models, one dimension each: <em>model → IO → tools → policy → errors → telemetry</em>. Each layer is its own Pydantic model that validates its fields <em>and</em> cross-checks against the catalogs; <code>Agent</code> is a frozen Pydantic model whose fields <em>are</em> those layers, with a single <code>model_validator</code> for cross-layer rules. Composition (not inheritance) keeps validators isolated and centralises cross-cutting checks in one place.</p>
+      </div>
+    </div>
+
+    <div class="outcome">
+      <div class="want">
+        <h4>Outcome</h4>
+        <p>The common case is a five-line snippet, not a six-deep constructor.</p>
+      </div>
+      <div class="how">
+        <h4>How</h4>
+        <p>Provide a fluent builder that lets users supply any subset of layers in any order and resolves cross-layer collisions internally. <strong>The builder owns ergonomics</strong>; the contract owns correctness. Keep them separate so adding sugar never weakens guarantees.</p>
+      </div>
+    </div>
+
+    <div class="outcome">
+      <div class="want">
+        <h4>Outcome</h4>
+        <p>An <code>Agent</code> isn't just a description — it can be <em>run</em>.</p>
+      </div>
+      <div class="how">
+        <h4>How</h4>
+        <p>Add a runtime that <em>compiles</em> the contract into a <code>pydantic_ai.Agent</code> and walks the call: validate the input envelope → apply policy ceilings (timeout, token limits, usage limits) → delegate to PydanticAI for the model invocation and tool dispatch → handle errors per the agent's error policy → emit OpenTelemetry spans tagged with OpenInference attribute names → validate the output. <strong>PydanticAI owns provider clients and tool plumbing; the framework owns the typed contract, the policy envelope, and the telemetry shape.</strong> No exporter is bundled — host apps wire OTLP (Langfuse, Phoenix, Arize, Logfire, …) themselves.</p>
+      </div>
+    </div>
+
+    <h3 class="section">Done when</h3>
+    <ul>
+      <li>A user installs the package, writes a builder snippet, points it at PydanticAI's <code>TestModel</code>, and runs an agent end-to-end with every policy, retry, and IO rule enforced.</li>
+      <li>Every per-layer test passes; warnings are errors; the framework depends only on <code>pydantic</code>, <code>pydantic-ai</code>, <code>opentelemetry-api</code>, and <code>opentelemetry-sdk</code> — no FastAPI, no HTTP, no bundled exporter.</li>
+      <li>Construction-time errors point at the bad field, not at a stack trace inside a model call three minutes later.</li>
+      <li>A test that installs an in-memory OTel exporter sees spans named <code>agent.run</code>, <code>agent.model.invoke</code>, and <code>agent.tool.&lt;id&gt;</code> carrying OpenInference attributes (<code>openinference.span.kind</code>, <code>llm.model_name</code>, <code>llm.token_count.*</code>, <code>tool.name</code>, …) — so Langfuse, Phoenix, and Arize render them natively without translation.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- ERA 2: AgentComposer API                                     -->
+<!-- ============================================================ -->
+<section class="era" data-era="2">
+  <div class="era-head">
+    <span class="label">Era II · The Service</span>
+    <h2>AgentComposer API</h2>
+    <p class="tag-line">A stateless authoring backend that turns the framework into something a UI (or a script, or a CI job) can drive.</p>
+  </div>
+  <div class="era-body">
+    <div class="accent-bar"></div>
+
+    <div class="focus">
+      <strong>Focus.</strong> <span>Expose the framework's <em>questions</em> over HTTP — "what catalogs exist?", "is this graph valid?", "what defaults make sense here?", "what would this graph look like on disk?" — without ever owning UI state. Anyone who can speak HTTP can author agents.</span>
+    </div>
+
+    <h3 class="section">Outcomes &amp; how to achieve them</h3>
+
+    <div class="outcome">
+      <div class="want">
+        <h4>Outcome</h4>
+        <p>Clients learn the framework's shape at runtime — never hand-maintain a mirror of it.</p>
+      </div>
+      <div class="how">
+        <h4>How</h4>
+        <p>Derive JSON schemas directly from the Pydantic layer classes and serve them. Serve every catalog as JSON too. <strong>The backend's truth is whatever the framework imports right now</strong>, so a framework upgrade automatically updates what every client sees.</p>
+      </div>
+    </div>
+
+    <div class="outcome">
+      <div class="want">
+        <h4>Outcome</h4>
+        <p>A "project" is a graph of agents, not a folder of disconnected files.</p>
+      </div>
+      <div class="how">
+        <h4>How</h4>
+        <p>Promote the graph (nodes = agents, edges = "A calls B") to a first-class request payload. Validate it structurally before doing anything else: endpoints exist, recursion is within declared limits, grants are coherent. <strong>Every request carries its own graph</strong> — the server holds no session state.</p>
+      </div>
+    </div>
+
+    <div class="outcome">
+      <div class="want">
+        <h4>Outcome</h4>
+        <p>Authors describe what they want; defaults appear automatically.</p>
+      </div>
+      <div class="how">
+        <h4>How</h4>
+        <p>Build a Resolver that reads each node's one-line description and fills unset fields — model tier, starter IO schema, recursion depth — then propagates implied wiring across edges (subagent grants, caller allowlists, IO compatibility). <strong>Only unset fields get touched</strong>; anything the author chose explicitly is preserved.</p>
+      </div>
+    </div>
+
+    <div class="outcome">
+      <div class="want">
+        <h4>Outcome</h4>
+        <p>Mistakes show up before they hit disk.</p>
+      </div>
+      <div class="how">
+        <h4>How</h4>
+        <p>Offer preview (build one agent, return its describe-output) and dry-run (instantiate every agent in the graph in-memory) endpoints. <strong>Use the real framework to validate</strong> — don't reimplement validation rules in the API layer.</p>
+      </div>
+    </div>
+
+    <div class="outcome">
+      <div class="want">
+        <h4>Outcome</h4>
+        <p>"Export" produces a folder that works in any project that depends on the framework — with zero runtime dependency on the API.</p>
+      </div>
+      <div class="how">
+        <h4>How</h4>
+        <p>Write a frozen JSON config per agent, a tiny Python loader next to each, and a package <code>__init__.py</code> that re-exports them. Add a graph snapshot for round-tripping. <strong>Refuse pathological destinations</strong> (filesystem root, drive root) so a typo can't nuke a machine.</p>
+      </div>
+    </div>
+
+    <h3 class="section">Done when</h3>
+    <ul>
+      <li>A developer can drive the entire authoring flow from <code>curl</code> and end up with an importable folder.</li>
+      <li>Every endpoint has a test; the API has no opinions about UI; the exported tree imports cleanly with only the framework installed.</li>
+      <li>Restarting the server changes nothing for clients — there was no state to lose.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- ERA 3: Agent Studio UI                                       -->
+<!-- ============================================================ -->
+<section class="era" data-era="3">
+  <div class="era-head">
+    <span class="label">Era III · The Canvas</span>
+    <h2>Agent Studio UI</h2>
+    <p class="tag-line">A ComfyUI-style web editor where the layered contract becomes something you can see, drag, and connect.</p>
+  </div>
+  <div class="era-body">
+    <div class="accent-bar"></div>
+
+    <div class="focus">
+      <strong>Focus.</strong> <span>Make the framework usable without writing Python. The UI is a thin shell over the API — it never reimplements validation, never hardcodes a catalog value, and never claims something is correct that the backend hasn't confirmed.</span>
+    </div>
+
+    <h3 class="section">Outcomes &amp; how to achieve them</h3>
+
+    <div class="outcome">
+      <div class="want">
+        <h4>Outcome</h4>
+        <p>The UI always reflects the framework's current shape — even after a framework upgrade.</p>
+      </div>
+      <div class="how">
+        <h4>How</h4>
+        <p>On boot, fetch <code>/node-types</code> and <code>/catalogs</code> and render everything from them. <strong>No hardcoded model ids, tool names, or layer fields anywhere in the frontend</strong> — every dropdown is bound to a live registry.</p>
+      </div>
+    </div>
+
+    <div class="outcome">
+      <div class="want">
+        <h4>Outcome</h4>
+        <p>Authoring feels spatial: an agent is a node, "A calls B" is an edge you draw.</p>
+      </div>
+      <div class="how">
+        <h4>How</h4>
+        <p>Use React Flow for the canvas and a draggable palette for node types. Each agent node renders its six layers as collapsible sections with catalog-bound pickers. Top and bottom sockets create the <code>calls</code> edges that drive the Resolver's propagation rules.</p>
+      </div>
+    </div>
+
+    <div class="outcome">
+      <div class="want">
+        <h4>Outcome</h4>
+        <p>Defaults appear by themselves, but never overwrite a deliberate choice.</p>
+      </div>
+      <div class="how">
+        <h4>How</h4>
+        <p>Debounce structural changes (~300 ms) and POST the graph to <code>/presets/resolve</code>. <strong>Parameter edits do not trigger resolve</strong> — only adds, deletes, and edges do. Provide a manual Resolve button and an auto-resolve toggle so the user is always in charge.</p>
+      </div>
+    </div>
+
+    <div class="outcome">
+      <div class="want">
+        <h4>Outcome</h4>
+        <p>Validation is the backend's job. The UI just shows the answer.</p>
+      </div>
+      <div class="how">
+        <h4>How</h4>
+        <p>Keep local state optimistic for responsiveness, but every "is this OK?" answer comes from <code>/graph/validate</code>, <code>/agents/preview</code>, or <code>/export/dry-run</code>. <strong>Surface errors on the specific node or field</strong> they came from — never as a generic toast.</p>
+      </div>
+    </div>
+
+    <div class="outcome">
+      <div class="want">
+        <h4>Outcome</h4>
+        <p>Export is one click, and the result imports cleanly into any downstream project.</p>
+      </div>
+      <div class="how">
+        <h4>How</h4>
+        <p>An export dialog takes an absolute path, calls <code>/export</code>, and reports success or the backend's refusal reason. <strong>The UI never writes files itself</strong>; the API owns the filesystem.</p>
+      </div>
+    </div>
+
+    <h3 class="section">Done when</h3>
+    <ul>
+      <li>A user opens the app, drags two nodes, writes a description in each, draws an edge, watches defaults fill in, clicks Dry-run (green), clicks Export — and gets a folder they can import.</li>
+      <li>The status bar honestly reports backend state; export is disabled when disconnected.</li>
+      <li>Pointing the UI at a future framework version with new fields just works, because nothing about the framework was baked into the frontend.</li>
+    </ul>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  Three eras · one chain · <span style="opacity:0.6;">framework → service → canvas, never the reverse</span>
+</footer>
+
+</body>
+</html>

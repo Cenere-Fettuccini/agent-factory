@@ -44,3 +44,6 @@ Thumbs.db
 # Local env
 .env
 .env.local
+
+# Node
+studio-web/node_modules/
