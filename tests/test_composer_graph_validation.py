@@ -65,6 +65,23 @@ def test_adjacent_tier_call_is_valid() -> None:
     assert not any(i.code == "non_adjacent_call" for i in result.issues)
 
 
+def test_same_tier_call_is_valid() -> None:
+    result = validate_graph(
+        _g(
+            {
+                "layers": ["refine", "orchestrate", "tools"],
+                "nodes": [
+                    {"id": "lead", "layer": "orchestrate"},
+                    {"id": "worker", "layer": "orchestrate"},
+                ],
+                "edges": [{"source": "lead", "target": "worker"}],  # peer call
+            }
+        )
+    )
+    assert result.valid
+    assert not any(i.code == "non_adjacent_call" for i in result.issues)
+
+
 def test_non_adjacent_tier_call_is_error() -> None:
     result = validate_graph(
         _g(

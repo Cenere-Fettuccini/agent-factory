@@ -169,8 +169,10 @@ function InnerCanvas() {
       if (!src || !tgt) return false;
       const si = store.layerIndex(src.layer);
       const ti = store.layerIndex(tgt.layer);
-      // Only allow a call to the tier directly below.
-      return si !== null && ti !== null && ti === si + 1;
+      // Allow a call to a peer in the SAME tier (e.g. a coordinator delegating
+      // to its specialists) or to the tier directly below. Never upward or
+      // tier-skipping.
+      return si !== null && ti !== null && (ti === si || ti === si + 1);
     },
     [store]
   );

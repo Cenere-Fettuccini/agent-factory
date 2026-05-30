@@ -58,7 +58,7 @@ def validate_graph(graph: Graph) -> ValidationResult:
 
     ids = set(graph.node_ids())
 
-    # 2. Edge endpoints exist, and calls only cross to the tier directly below.
+    # 2. Edge endpoints exist, and calls stay within a tier or cross to the next.
     adjacency: dict[str, list[str]] = {nid: [] for nid in ids}
     for edge in graph.edges:
         for end in (edge.source, edge.target):
@@ -98,10 +98,12 @@ def validate_graph(graph: Graph) -> ValidationResult:
 def _check_adjacency(
     graph: Graph, source: str, target: str
 ) -> list[ValidationIssue]:
-    """A call may only cross from a tier to the one directly below it.
+    """A call may stay within a tier or cross to the one directly below it.
 
-    Only enforced when both endpoints carry a tier in ``graph.layers``; tierless
-    graphs are validated exactly as before.
+    Same-tier calls model peer collaboration (e.g. a coordinator delegating to
+    its specialists); the only forbidden moves are calling upward or skipping a
+    tier downward. Only enforced when both endpoints carry a tier in
+    ``graph.layers``; tierless graphs are validated exactly as before.
     """
     src_node = graph.get(source)
     tgt_node = graph.get(target)
@@ -111,7 +113,7 @@ def _check_adjacency(
     tgt_i = graph.layer_index(tgt_node.layer)
     if src_i is None or tgt_i is None:
         return []
-    if tgt_i != src_i + 1:
+    if tgt_i != src_i and tgt_i != src_i + 1:
         return [
             ValidationIssue(
                 severity="error",
@@ -119,7 +121,7 @@ def _check_adjacency(
                 message=(
                     f"call {source!r} -> {target!r} crosses tiers "
                     f"{src_node.layer!r} -> {tgt_node.layer!r}; a tier may only "
-                    "call the tier directly below it"
+                    "call its own tier or the one directly below it"
                 ),
                 edge=(source, target),
             )

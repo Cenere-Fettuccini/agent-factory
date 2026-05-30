@@ -86,7 +86,8 @@ interface GraphState {
   addEdge: (source: string, target: string) => void;
   removeEdge: (source: string, target: string) => void;
 
-  loadProposal: (proposal: DesignProposal) => void;
+  /** Apply a proposed delta. Returns false (a no-op) when there's nothing to change. */
+  loadProposal: (proposal: DesignProposal) => boolean;
 
   addLayer: (name: string) => void;
   renameLayer: (oldName: string, newName: string) => void;
@@ -253,48 +254,180 @@ export const useGraph = create<GraphState>((set, get) => ({
   setPreview: (preview) => set({ preview }),
   setDryRun: (dryRun) => set({ dryRun }),
 
-  // Replace the canvas with an SLM-proposed structure. Only the high-level shape
-  // (tiers, agents, edges) is taken; every layer config is left unset so the
-  // backend Resolver fills it, and Validate then flags any tier-skipping edges.
-  loadProposal: (proposal) =>
-    set((s) => {
-      const layers = proposal.layers.length ? proposal.layers : s.layers;
-      const used = new Set<string>();
-      const idMap = new Map<string, string>();
-      const perLane: Record<number, number> = {};
-      const nodes: GraphNode[] = [];
-      const positions: Record<string, NodePosition> = {};
+  // Apply an SLM-proposed DELTA to the canvas: add new agents/tiers/edges, modify
+  // existing agents in place, and delete whatever the proposal explicitly lists in
+  // `remove`. Deletion is opt-in by design — omitting an existing item never drops
+  // it, so a thin/empty generation from the in-browser 0.5B model can't silently
+  // wipe the user's work; only an explicit `remove` entry deletes. Modifying an
+  // existing agent patches only the proposal-owned fields (description, name,
+  // layer, trigger); its resolved config (model/tools/…) and id are preserved so a
+  // later Resolve isn't clobbered. New layer configs stay unset for the backend
+  // Resolver to fill, and Validate flags any tier-skipping edges.
+  loadProposal: (proposal) => {
+    const removal = proposal.remove ?? {};
+    const removeAgentIds = new Set(removal.agents ?? []);
+    const removeLayerNames = new Set(removal.layers ?? []);
+    const removeEdgeKeys = new Set(
+      (removal.edges ?? []).map((e) => `${e.source}->${e.target}`)
+    );
 
+    const hasAdds =
+      proposal.agents.length > 0 ||
+      proposal.layers.length > 0 ||
+      proposal.edges.length > 0;
+    const hasRemovals =
+      removeAgentIds.size > 0 || removeLayerNames.size > 0 || removeEdgeKeys.size > 0;
+    // Nothing to apply: a dud/empty generation leaves the canvas untouched and the
+    // caller can tell the user the model returned nothing usable.
+    if (!hasAdds && !hasRemovals) return false;
+
+    set((s) => {
+      // Tier names are matched loosely: the model rarely echoes "Orchestrator"
+      // with the exact casing/spacing, so we compare on a normalized key. Without
+      // this, a proposed "orchestration" tier piles up as a *new* lane below the
+      // empty default and its agents scatter off-screen.
+      const normLayer = (l: string) => l.trim().toLowerCase().replace(/\s+/g, " ");
+      const removeLayerKeys = new Set([...removeLayerNames].map(normLayer));
+
+      // --- Tiers --------------------------------------------------------------
+      // On a blank canvas (no agents yet) the three default tiers are just a
+      // scaffold — adopt the proposal's own tier structure instead of stacking
+      // onto it, so the model's design fills the canvas top-to-bottom. With agents
+      // present we delta-merge: keep existing tiers, append genuinely new ones.
+      const fresh = s.nodes.length === 0;
+      let layers = fresh && proposal.layers.length ? [] : [...s.layers];
+      const canonicalByNorm = new Map<string, string>();
+      for (const l of layers) canonicalByNorm.set(normLayer(l), l);
+      for (const raw of proposal.layers) {
+        const name = (raw ?? "").trim();
+        if (!name) continue;
+        const key = normLayer(name);
+        if (canonicalByNorm.has(key)) continue; // same tier under any casing
+        layers.push(name);
+        canonicalByNorm.set(key, name);
+      }
+      layers = layers.filter((l) => !removeLayerKeys.has(normLayer(l)));
+      for (const key of removeLayerKeys) canonicalByNorm.delete(key);
+      if (layers.length === 0) layers = [...DEFAULT_LAYERS]; // never leave it tier-less
+
+      // Resolve a proposed tier name to a canvas tier index, or -1 if unknown.
+      const layerIndexOf = (raw: string | null | undefined): number => {
+        if (raw == null) return -1;
+        const canon = canonicalByNorm.get(normLayer(raw));
+        return canon == null ? -1 : layers.indexOf(canon);
+      };
+
+      // An agent is deleted if named for removal, or its tier was removed.
+      const isDeleted = (n: GraphNode) =>
+        removeAgentIds.has(n.id) ||
+        (n.layer != null && removeLayerKeys.has(normLayer(n.layer)));
+
+      const positions: Record<string, NodePosition> = { ...s.positions };
+      const proposedById = new Map(proposal.agents.map((a) => [a.id, a]));
+
+      // --- Existing nodes: keep survivors; patch in place if re-proposed. ------
+      const survivors: GraphNode[] = [];
+      for (const n of s.nodes) {
+        if (isDeleted(n)) {
+          delete positions[n.id];
+          continue;
+        }
+        const p = proposedById.get(n.id);
+        if (!p) {
+          survivors.push(n);
+          continue;
+        }
+        // Delta edit: only the proposal-owned fields change.
+        const ri = layerIndexOf(p.layer);
+        const layer = ri >= 0 ? layers[ri] : n.layer;
+        if (layer !== n.layer && ri >= 0) {
+          positions[n.id] = {
+            x: positions[n.id]?.x ?? PROPOSAL_X_START,
+            y: ri * LANE_HEIGHT + PROPOSAL_Y_OFFSET,
+          };
+        }
+        survivors.push({
+          ...n,
+          description: p.description,
+          name: p.name?.trim() ? p.name.trim() : null,
+          layer,
+          trigger:
+            p.trigger === "user_query" || p.trigger === "auto_action" ? p.trigger : null,
+        });
+      }
+
+      // --- New agents: anything proposed whose id isn't already on the canvas. --
+      const used = new Set(survivors.map((n) => n.id));
+      // Pre-seed the id map with surviving ids (mapped to themselves) so proposal
+      // edges referencing an existing agent still resolve.
+      const idMap = new Map<string, string>();
+      for (const n of survivors) idMap.set(n.id, n.id);
+
+      const perLane: Record<number, number> = {};
+      for (const n of survivors) {
+        const li = n.layer ? layers.indexOf(n.layer) : -1;
+        if (li >= 0) perLane[li] = (perLane[li] ?? 0) + 1;
+      }
+
+      // Tier assignment is opportunistic: if the proposal names a tier we
+      // recognize, the agent lands in that lane; otherwise (missing/unknown tier)
+      // it's dropped tier-less into a staging row below the lanes for the user to
+      // drag into place — better than guessing a tier and scattering nodes.
+      const unassignedY = layers.length * LANE_HEIGHT + PROPOSAL_Y_OFFSET;
+      let unassignedCol = 0;
+
+      const newNodes: GraphNode[] = [];
       for (const a of proposal.agents) {
+        if (idMap.has(a.id)) continue; // already exists — patched above
+
         const id = sanitizeId(a.id, used);
         used.add(id);
         idMap.set(a.id, id);
 
-        const li = layers.includes(a.layer) ? layers.indexOf(a.layer) : 0;
-        const col = perLane[li] ?? 0;
-        perLane[li] = col + 1;
-
-        const node = emptyNode(id, layers[li]);
+        const ri = layerIndexOf(a.layer);
+        const node = emptyNode(id, ri >= 0 ? layers[ri] : null);
         node.description = a.description;
         node.name = a.name?.trim() ? a.name.trim() : null;
         node.trigger =
           a.trigger === "user_query" || a.trigger === "auto_action" ? a.trigger : null;
-        nodes.push(node);
-        positions[id] = {
-          x: PROPOSAL_X_START + col * PROPOSAL_X_STEP,
-          y: li * LANE_HEIGHT + PROPOSAL_Y_OFFSET,
-        };
+        newNodes.push(node);
+
+        if (ri >= 0) {
+          const col = perLane[ri] ?? 0;
+          perLane[ri] = col + 1;
+          positions[id] = {
+            x: PROPOSAL_X_START + col * PROPOSAL_X_STEP,
+            y: ri * LANE_HEIGHT + PROPOSAL_Y_OFFSET,
+          };
+        } else {
+          positions[id] = {
+            x: PROPOSAL_X_START + unassignedCol * PROPOSAL_X_STEP,
+            y: unassignedY,
+          };
+          unassignedCol += 1;
+        }
       }
 
+      const nodes = [...survivors, ...newNodes];
       const nodeIds = new Set(nodes.map((n) => n.id));
-      const seen = new Set<string>();
+
+      // --- Edges: keep survivors minus removals/dangling, then add proposed. ---
       const edges: GraphEdge[] = [];
+      const seen = new Set<string>();
+      for (const e of s.edges) {
+        const key = `${e.source}->${e.target}`;
+        if (removeEdgeKeys.has(key)) continue;
+        if (!nodeIds.has(e.source) || !nodeIds.has(e.target)) continue;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        edges.push(e);
+      }
       for (const e of proposal.edges) {
         const source = idMap.get(e.source) ?? e.source;
         const target = idMap.get(e.target) ?? e.target;
         const key = `${source}->${target}`;
         if (source === target || !nodeIds.has(source) || !nodeIds.has(target)) continue;
-        if (seen.has(key)) continue;
+        if (removeEdgeKeys.has(key) || seen.has(key)) continue;
         seen.add(key);
         edges.push({ source, target });
       }
@@ -310,7 +443,9 @@ export const useGraph = create<GraphState>((set, get) => ({
         structuralRev: s.structuralRev + 1,
         graphRev: s.graphRev + 1,
       };
-    }),
+    });
+    return true;
+  },
 
   // Merge a resolved graph back in: only layer configs change; positions, ids,
   // tiers, triggers, and edges are preserved from local state.

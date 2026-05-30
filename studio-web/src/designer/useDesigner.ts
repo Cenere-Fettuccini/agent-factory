@@ -1,5 +1,5 @@
 // In-browser SLM designer. Gated behind an explicit load() because the model is
-// a one-time ~1GB download (cached by the browser afterwards). Everything is
+// a one-time ~1.1GB download (cached by the browser afterwards). Everything is
 // client-side: no server hop, no API key. Behind a single `propose()` seam so a
 // server fallback could slot in for WebGPU-less browsers without touching the UI.
 
@@ -11,12 +11,21 @@ import {
   DESIGNER_SYSTEM_PROMPT,
   PROPOSAL_JSON_SCHEMA,
   describeCurrent,
+  refineDesignerPrompt,
+  type CurrentDesign,
   type DesignProposal,
 } from "./proposalSchema";
 
-// Small, instruction-tuned, strong at constrained JSON for its size. 4-bit,
-// ~1.1GB. Bump to a 3B model here if proposal quality falls short.
-const MODEL_ID = "Qwen2.5-1.5B-Instruct-q4f16_1-MLC";
+// Instruction-tuned, strong at constrained JSON for its size. 4-bit, ~1.9GB.
+// We stepped up from the 1.5B variant: on multi-stage briefs ("get a topic, then
+// research it into a paper — two separate networks") the smaller model
+// under-decomposed and emitted just a couple of agents. The 3B has the headroom
+// to follow the decomposition rules and worked example in DESIGNER_SYSTEM_PROMPT
+// and fill out a real multi-tier pipeline. Trade-off to keep in mind: on a
+// machine with only an integrated GPU this can saturate shared VRAM, and because
+// the Windows desktop compositor shares that GPU the whole machine can briefly
+// stutter or freeze during inference — preflightWebGPU gates the worst cases.
+const MODEL_ID = "Qwen2.5-3B-Instruct-q4f16_1-MLC";
 
 export type DesignerStatus =
   | "idle" // not loaded yet
@@ -33,10 +42,7 @@ export interface DesignerState {
   progressText: string;
   error: string | null;
   load: () => Promise<void>;
-  propose: (
-    prompt: string,
-    current: { layers: string[]; agentIds: string[] }
-  ) => Promise<DesignProposal | null>;
+  propose: (prompt: string, current: CurrentDesign) => Promise<DesignProposal | null>;
 }
 
 function webgpuAvailable(): boolean {
@@ -139,9 +145,12 @@ export function useDesigner(): DesignerState {
       setStatus("thinking");
       setError(null);
       try {
+        const refinedPrompt = refineDesignerPrompt(prompt);
         const reply = await engine.chat.completions.create({
           temperature: 0.4,
-          max_tokens: 1024,
+          // Headroom so a larger delta (agents + edges + a remove block) doesn't
+          // get truncated mid-JSON, which would fail the parse below.
+          max_tokens: 2048,
           response_format: {
             type: "json_object",
             schema: JSON.stringify(PROPOSAL_JSON_SCHEMA),
@@ -150,11 +159,13 @@ export function useDesigner(): DesignerState {
             { role: "system", content: DESIGNER_SYSTEM_PROMPT },
             {
               role: "user",
-              content: `${describeCurrent(current.layers, current.agentIds)}\n\nTask: ${prompt}`,
+              content: `${describeCurrent(current)}\n\nTask: ${refinedPrompt}`,
             },
           ],
         });
         const text = reply.choices[0]?.message?.content ?? "";
+        // Leave a breadcrumb for diagnosing weak/empty generations from devtools.
+        console.debug("[designer] raw model reply:", text);
         const parsed = JSON.parse(text) as DesignProposal;
         setStatus("ready");
         return parsed;
