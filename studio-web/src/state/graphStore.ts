@@ -8,6 +8,7 @@
 // resolve never clobbers what the user is typing.
 
 import { create } from "zustand";
+import type { DesignProposal } from "../designer/proposalSchema";
 import type {
   DryRunResult,
   Graph,
@@ -76,6 +77,8 @@ interface GraphState {
   addEdge: (source: string, target: string) => void;
   removeEdge: (source: string, target: string) => void;
 
+  loadProposal: (proposal: DesignProposal) => void;
+
   addLayer: (name: string) => void;
   renameLayer: (oldName: string, newName: string) => void;
 
@@ -96,6 +99,27 @@ function nextId(existing: Set<string>): string {
   } while (existing.has(`agent-${counter}`));
   return `agent-${counter}`;
 }
+
+// SLM-proposed ids are free-form; agent ids must match ^[a-z][a-z0-9_-]*$ once
+// they reach the backend. Coerce, then de-dupe against ids already placed.
+function sanitizeId(raw: string, used: Set<string>): string {
+  let id = raw
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^[-_]+|[-_]+$/g, "");
+  if (!/^[a-z]/.test(id)) id = `a-${id}`;
+  if (!id) id = "agent";
+  let unique = id;
+  let n = 2;
+  while (used.has(unique)) unique = `${id}-${n++}`;
+  return unique;
+}
+
+// Auto-layout: agents fan out left-to-right within their tier's horizontal band.
+const PROPOSAL_X_START = 80;
+const PROPOSAL_X_STEP = 260;
+const PROPOSAL_Y_OFFSET = 40;
 
 export const useGraph = create<GraphState>((set, get) => ({
   nodes: [],
@@ -216,6 +240,65 @@ export const useGraph = create<GraphState>((set, get) => ({
   setIssues: (issues) => set({ issues }),
   setPreview: (preview) => set({ preview }),
   setDryRun: (dryRun) => set({ dryRun }),
+
+  // Replace the canvas with an SLM-proposed structure. Only the high-level shape
+  // (tiers, agents, edges) is taken; every layer config is left unset so the
+  // backend Resolver fills it, and Validate then flags any tier-skipping edges.
+  loadProposal: (proposal) =>
+    set((s) => {
+      const layers = proposal.layers.length ? proposal.layers : s.layers;
+      const used = new Set<string>();
+      const idMap = new Map<string, string>();
+      const perLane: Record<number, number> = {};
+      const nodes: GraphNode[] = [];
+      const positions: Record<string, NodePosition> = {};
+
+      for (const a of proposal.agents) {
+        const id = sanitizeId(a.id, used);
+        used.add(id);
+        idMap.set(a.id, id);
+
+        const li = layers.includes(a.layer) ? layers.indexOf(a.layer) : 0;
+        const col = perLane[li] ?? 0;
+        perLane[li] = col + 1;
+
+        const node = emptyNode(id, layers[li]);
+        node.description = a.description;
+        node.name = a.name?.trim() ? a.name.trim() : null;
+        node.trigger =
+          a.trigger === "user_query" || a.trigger === "auto_action" ? a.trigger : null;
+        nodes.push(node);
+        positions[id] = {
+          x: PROPOSAL_X_START + col * PROPOSAL_X_STEP,
+          y: li * LANE_HEIGHT + PROPOSAL_Y_OFFSET,
+        };
+      }
+
+      const nodeIds = new Set(nodes.map((n) => n.id));
+      const seen = new Set<string>();
+      const edges: GraphEdge[] = [];
+      for (const e of proposal.edges) {
+        const source = idMap.get(e.source) ?? e.source;
+        const target = idMap.get(e.target) ?? e.target;
+        const key = `${source}->${target}`;
+        if (source === target || !nodeIds.has(source) || !nodeIds.has(target)) continue;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        edges.push({ source, target });
+      }
+
+      return {
+        layers,
+        nodes,
+        edges,
+        positions,
+        selectedNodeId: null,
+        preview: null,
+        dryRun: null,
+        structuralRev: s.structuralRev + 1,
+        graphRev: s.graphRev + 1,
+      };
+    }),
 
   // Merge a resolved graph back in: only layer configs change; positions, ids,
   // tiers, triggers, and edges are preserved from local state.

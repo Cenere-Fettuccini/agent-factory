@@ -3,6 +3,7 @@ import { api } from "./api/client";
 import { useCatalog } from "./catalog/CatalogProvider";
 import { useGraph } from "./state/graphStore";
 import { TierCanvas } from "./canvas/TierCanvas";
+import { DesignerPanel } from "./components/DesignerPanel";
 import { Toolbar } from "./components/Toolbar";
 import { Inspector } from "./components/Inspector";
 import { StatusBar } from "./components/StatusBar";
@@ -106,6 +107,7 @@ export function App() {
       <div className="body">
         <div className="canvas-wrap">
           <TierCanvas />
+          <DesignerPanel />
         </div>
         <Inspector />
       </div>

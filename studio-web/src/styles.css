@@ -127,3 +127,33 @@ textarea { resize: vertical; min-height: 48px; font-family: inherit; }
 .issue .sev { font-weight: 700; }
 .issue .sev.error { color: var(--danger); }
 .issue .sev.warning { color: var(--warn); }
+
+/* Design-with-AI panel (floats over the canvas, bottom-left) */
+.designer-fab {
+  position: absolute; left: 16px; bottom: 16px; z-index: 20;
+  background: var(--era3); color: #1a1030; border-color: var(--era3);
+  font-weight: 600;
+}
+.designer-panel {
+  position: absolute; left: 16px; bottom: 16px; z-index: 20; width: 300px;
+  background: var(--panel); border: 1px solid var(--era3); border-radius: 12px;
+  padding: 14px; box-shadow: 0 8px 30px rgba(0,0,0,0.4);
+}
+.designer-head {
+  display: flex; align-items: center; justify-content: space-between;
+  font-weight: 700; color: var(--era3); margin-bottom: 10px;
+}
+.designer-head button { padding: 2px 8px; font-size: 12px; }
+.designer-panel textarea {
+  width: 100%; background: var(--panel-2); color: var(--ink);
+  border: 1px solid var(--border); border-radius: 6px; padding: 8px;
+  font-size: 13px; font-family: inherit; margin-bottom: 8px;
+}
+.designer-panel .primary { width: 100%; }
+.designer-hint { font-size: 12px; color: var(--muted); margin: 0 0 10px; }
+.designer-sub { font-size: 11px; color: var(--muted); margin: 8px 0 0; }
+.designer-bar {
+  height: 8px; background: var(--panel-2); border-radius: 999px;
+  overflow: hidden; border: 1px solid var(--border);
+}
+.designer-bar-fill { height: 100%; background: var(--era3); transition: width 0.2s; }
