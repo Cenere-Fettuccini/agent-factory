@@ -26,8 +26,16 @@ export interface NodePosition {
 }
 
 export const DEFAULT_LAYERS = ["Refinement", "Orchestrator", "Tools"];
-export const LANE_HEIGHT = 240;
-export const LANE_WIDTH = 1600;
+// Tall enough for a ComfyUI-style node with its widgets always visible.
+export const LANE_HEIGHT = 400;
+export const LANE_WIDTH = 2000;
+
+// One accent per tier (cycled), used for the node title bar and lane frame.
+export const TIER_COLORS = ["#7cc4ff", "#76d49a", "#b794ff", "#e8a468", "#e8688f"];
+export function tierColor(index: number): string {
+  const n = TIER_COLORS.length;
+  return TIER_COLORS[((index % n) + n) % n];
+}
 
 function emptyNode(id: string, layer: string | null): GraphNode {
   return {
@@ -120,8 +128,8 @@ function sanitizeId(raw: string, used: Set<string>): string {
 
 // Auto-layout: agents fan out left-to-right within their tier's horizontal band.
 const PROPOSAL_X_START = 80;
-const PROPOSAL_X_STEP = 260;
-const PROPOSAL_Y_OFFSET = 40;
+const PROPOSAL_X_STEP = 320;
+const PROPOSAL_Y_OFFSET = 28;
 
 export const useGraph = create<GraphState>((set, get) => ({
   nodes: [],

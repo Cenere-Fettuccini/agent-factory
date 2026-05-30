@@ -5,7 +5,6 @@ import { useGraph } from "./state/graphStore";
 import { TierCanvas } from "./canvas/TierCanvas";
 import { DesignerPanel } from "./components/DesignerPanel";
 import { Toolbar } from "./components/Toolbar";
-import { Inspector } from "./components/Inspector";
 import { StatusBar } from "./components/StatusBar";
 import { ExportDialog } from "./components/ExportDialog";
 
@@ -109,7 +108,6 @@ export function App() {
           <TierCanvas />
           <DesignerPanel />
         </div>
-        <Inspector />
       </div>
       <StatusBar />
       {showExport && <ExportDialog onClose={() => setShowExport(false)} />}

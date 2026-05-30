@@ -13,11 +13,11 @@ import {
 } from "@xyflow/react";
 import { AgentNode } from "./AgentNode";
 import { LaneNode } from "./LaneNode";
-import { LANE_HEIGHT, LANE_WIDTH, useGraph } from "../state/graphStore";
+import { LANE_HEIGHT, LANE_WIDTH, tierColor, useGraph } from "../state/graphStore";
 
 const nodeTypes = { agent: AgentNode, lane: LaneNode };
-const AGENT_NODE_ESTIMATED_HEIGHT = 112;
-const LANE_PADDING = 12;
+const AGENT_NODE_ESTIMATED_HEIGHT = 340;
+const LANE_PADDING = 16;
 
 /** Downstream-reachable node + edge ids from a starting node (the resolution path). */
 function reachableFrom(
@@ -103,7 +103,7 @@ function InnerCanvas() {
       id: `lane-${i}`,
       type: "lane",
       position: { x: 0, y: i * LANE_HEIGHT },
-      data: { label, index: i },
+      data: { label, index: i, color: tierColor(i) },
       draggable: false,
       selectable: false,
       zIndex: 0,

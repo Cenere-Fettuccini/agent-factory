@@ -45,14 +45,7 @@ button.ghost { background: transparent; }
 .body { display: flex; flex: 1; min-height: 0; }
 .canvas-wrap { flex: 1; position: relative; min-width: 0; }
 
-/* Inspector */
-.inspector {
-  width: 340px; flex: 0 0 340px; border-left: 1px solid var(--border);
-  background: var(--panel); overflow-y: auto; padding: 16px;
-}
-.inspector h3 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); margin: 18px 0 8px; }
-.inspector h3:first-child { margin-top: 0; }
-.inspector .empty { color: var(--muted); font-size: 13px; }
+/* On-node / panel form fields */
 label.field { display: block; margin: 8px 0; font-size: 12px; color: var(--muted); }
 label.field input, label.field select, label.field textarea {
   display: block; width: 100%; margin-top: 4px;
@@ -75,30 +68,54 @@ textarea { resize: vertical; min-height: 48px; font-family: inherit; }
 .count.warn { color: var(--warn); }
 .count.ok { color: var(--era2); }
 
-/* React Flow node */
-.agent-node {
-  width: 210px; background: var(--panel-2);
+/* ComfyUI-style node */
+.cnode {
+  width: 280px; background: var(--panel);
   border: 1px solid var(--border); border-radius: 10px;
-  padding: 10px; font-size: 12px;
+  overflow: hidden; font-size: 12px;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.35);
 }
-.agent-node.selected { border-color: var(--era3); box-shadow: 0 0 0 1px var(--era3); }
-.agent-node.error { border-color: var(--danger); }
-.agent-node.on-path { box-shadow: 0 0 0 2px var(--era2); }
-.agent-node .nid { font-weight: 700; font-size: 13px; }
-.agent-node .desc { color: var(--muted); margin: 2px 0 6px; min-height: 14px; }
-.agent-node .model { font: 11px ui-monospace, Menlo, monospace; color: var(--era1); }
-.agent-node .badge {
-  display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 999px;
-  border: 1px solid var(--border); color: var(--muted); margin-top: 6px; margin-right: 4px;
-}
-.agent-node .badge.trigger { color: var(--era2); border-color: var(--era2); }
-.agent-node .node-err { color: var(--danger); font-size: 11px; margin-top: 6px; }
+.cnode.selected { box-shadow: 0 0 0 2px var(--ink), 0 4px 14px rgba(0,0,0,0.35); }
+.cnode.on-path { box-shadow: 0 0 0 2px var(--era2), 0 4px 14px rgba(0,0,0,0.35); }
+.cnode.error { border-color: var(--danger); }
 
-/* lane label */
-.lane-label {
+.cnode-title {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 8px; border-bottom: 1px solid var(--border);
+  cursor: grab; /* the title bar drags the node; body widgets do not */
+}
+.cnode-caret {
+  background: transparent; border: none; color: var(--muted);
+  padding: 0; width: 16px; font-size: 11px; cursor: pointer;
+}
+.cnode-name { font-weight: 700; font-size: 13px; flex: 0 1 auto; }
+.cnode-tier {
+  flex: 1; text-align: right; font-size: 10px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.08em; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap;
+}
+.cnode-x {
+  background: transparent; border: none; color: var(--muted);
+  padding: 0 2px; font-size: 12px; cursor: pointer; line-height: 1;
+}
+.cnode-x:hover { color: var(--danger); }
+
+.cnode-body { padding: 8px 10px 10px; }
+.cnode-body label.field { margin: 6px 0; }
+.cnode-body label.field:first-child { margin-top: 0; }
+.cnode-body h3 {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em;
+  color: var(--muted); margin: 12px 0 6px;
+}
+
+/* lane group frame */
+.lane-frame { border-radius: 14px; }
+.lane-tab {
+  display: inline-block; margin: 8px 0 0 10px;
   font: 700 11px/1 ui-monospace, Menlo, monospace;
-  text-transform: uppercase; letter-spacing: 0.16em; color: var(--era3);
-  padding: 6px 10px; pointer-events: none;
+  text-transform: uppercase; letter-spacing: 0.16em;
+  padding: 4px 9px; border: 1px solid; border-radius: 7px;
+  background: var(--bg); pointer-events: none;
 }
 
 /* Tools / dialogs */
