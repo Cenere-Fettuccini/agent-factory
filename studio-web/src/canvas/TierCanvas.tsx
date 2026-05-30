@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Background,
   Controls,
@@ -72,10 +72,11 @@ interface CanvasMenu {
 
 function InnerCanvas() {
   const store = useGraph();
-  const { screenToFlowPosition } = useReactFlow();
+  const { screenToFlowPosition, fitView } = useReactFlow();
   const [rfNodes, setRfNodes, onNodesChange] = useNodesState<Node>([]);
   const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [menu, setMenu] = useState<CanvasMenu | null>(null);
+  const didFit = useRef(false);
 
   const errorByNode = useMemo(() => {
     const m = new Map<string, string>();
@@ -150,6 +151,15 @@ function InnerCanvas() {
       })
     );
   }, [store.edges, path, setRfEdges]);
+
+  // Frame the tier stack on first paint, once the lanes exist. The tall stack is
+  // height-bound, so all pre-established tiers land inside the viewport. After
+  // that the user owns the viewport (the Controls fit button re-frames on demand).
+  useEffect(() => {
+    if (didFit.current || rfNodes.length === 0) return;
+    didFit.current = true;
+    requestAnimationFrame(() => fitView({ padding: 0.1, maxZoom: 1, duration: 0 }));
+  }, [rfNodes, fitView]);
 
   const isValidConnection = useCallback(
     (c: Connection | Edge) => {
@@ -244,7 +254,6 @@ function InnerCanvas() {
       onDragOver={onDragOver}
       nodeTypes={nodeTypes}
       minZoom={0.3}
-      defaultViewport={{ x: 80, y: 40, zoom: 0.85 }}
       proOptions={{ hideAttribution: true }}
     >
       <Background color="#2a3042" gap={24} />
