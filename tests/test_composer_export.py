@@ -6,6 +6,7 @@ import importlib.util
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -14,7 +15,7 @@ from composer.resolver import resolve
 from composer.schemas.graph import Graph
 
 
-def _resolved(data: dict) -> Graph:
+def _resolved(data: dict[str, Any]) -> Graph:
     return resolve(Graph.model_validate(data))
 
 

@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from composer.graph_validation import validate_graph
 from composer.schemas.graph import Graph
 
 
-def _g(data: dict) -> Graph:
+def _g(data: dict[str, Any]) -> Graph:
     return Graph.model_validate(data)
 
 

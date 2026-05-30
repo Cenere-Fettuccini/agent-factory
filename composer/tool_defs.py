@@ -18,7 +18,7 @@ the user fills in (:func:`render_tools_module`).
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from typing import Any
 
@@ -60,7 +60,7 @@ def _build_model(name: str, fields: dict[str, ToolDefField]) -> type[BaseModel]:
     return create_model(name, **definitions)
 
 
-def _stub_callable(tool_id: str):
+def _stub_callable(tool_id: str) -> Callable[..., Any]:
     def _impl(**kwargs: Any) -> Any:
         raise NotImplementedError(
             f"tool {tool_id!r} needs an implementation; fill in this callable"

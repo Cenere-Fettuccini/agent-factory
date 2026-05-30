@@ -70,7 +70,7 @@ def test_max_output_tokens_within_context_window() -> None:
 def test_agent_frozen() -> None:
     agent = Agent(identity=_identity(), model=ModelLayer(model_id="test:echo"), io=_io())
     with pytest.raises(ValidationError):
-        agent.policy = PolicyLayer()  # type: ignore[misc]
+        agent.policy = PolicyLayer()
 
 
 def test_extra_forbidden() -> None:

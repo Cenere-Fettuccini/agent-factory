@@ -71,9 +71,8 @@ def test_registered_tools_scope_is_clean() -> None:
 
 def test_registered_tools_cleans_up_on_error() -> None:
     td = _search_tool()
-    with pytest.raises(ToolDefError):
-        with registered_tools([td, td]):  # duplicate id mid-block
-            pass
+    with pytest.raises(ToolDefError), registered_tools([td, td]):  # duplicate id mid-block
+        pass
     assert not TOOLS.contains("web-search")
 
 

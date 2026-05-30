@@ -23,8 +23,9 @@ def test_to_pydantic_model_required_and_optional() -> None:
     )
     model = schema.to_pydantic_model()
     inst = model(q="hi")
-    assert inst.q == "hi"
-    assert inst.n is None
+    values = inst.model_dump()
+    assert values["q"] == "hi"
+    assert values["n"] is None
     with pytest.raises(ValidationError):
         model(n=1.0)  # q is required
 
@@ -41,4 +42,4 @@ def test_io_layer_frozen() -> None:
     out_s = IOSchema(name="Out", fields={"a": IOFieldSpec(type_key="text")})
     layer = IOLayer(input_schema=in_s, output_schema=out_s)
     with pytest.raises(ValidationError):
-        layer.input_schema = out_s  # type: ignore[misc]
+        layer.input_schema = out_s

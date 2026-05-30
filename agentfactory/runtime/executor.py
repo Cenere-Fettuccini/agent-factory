@@ -7,6 +7,7 @@ import contextvars
 import functools
 import inspect
 import json
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from opentelemetry.trace import Status, StatusCode
@@ -49,12 +50,12 @@ class _ToolCallBudget:
 
 
 # Set fresh by run() for each execution; wrapped tools charge against it.
-_tool_call_budget: contextvars.ContextVar[_ToolCallBudget] = contextvars.ContextVar(
-    "af_tool_call_budget", default=_ToolCallBudget(None)
+_tool_call_budget: contextvars.ContextVar[_ToolCallBudget | None] = contextvars.ContextVar(
+    "af_tool_call_budget", default=None
 )
 
 
-def _wrap_tool_with_budget(func):
+def _wrap_tool_with_budget(func: Callable[..., Any]) -> Callable[..., Any]:
     """Wrap a tool callable so each call is charged against the per-run
     max_tool_calls budget, raising PolicyExceeded once the cap is exceeded.
 
@@ -65,7 +66,7 @@ def _wrap_tool_with_budget(func):
 
     def _charge() -> None:
         budget = _tool_call_budget.get()
-        if budget.limit is None:
+        if budget is None or budget.limit is None:
             return
         budget.count += 1
         if budget.count > budget.limit:
@@ -74,19 +75,19 @@ def _wrap_tool_with_budget(func):
     if inspect.iscoroutinefunction(func):
 
         @functools.wraps(func)
-        async def awrapper(*args, **kwargs):
+        async def awrapper(*args: Any, **kwargs: Any) -> Any:
             _charge()
             return await func(*args, **kwargs)
 
-        awrapper.__signature__ = inspect.signature(func)
+        awrapper.__signature__ = inspect.signature(func)  # type: ignore[attr-defined]
         return awrapper
 
     @functools.wraps(func)
-    def wrapper(*args, **kwargs):
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
         _charge()
         return func(*args, **kwargs)
 
-    wrapper.__signature__ = inspect.signature(func)
+    wrapper.__signature__ = inspect.signature(func)  # type: ignore[attr-defined]
     return wrapper
 
 
@@ -225,10 +226,10 @@ async def run(
         span.set_attribute(otel.OUTPUT_VALUE, json.dumps(output_data, default=str))
 
         usage = result.usage()
-        if usage.request_tokens is not None:
-            span.set_attribute(otel.LLM_TOKEN_COUNT_PROMPT, usage.request_tokens)
-        if usage.response_tokens is not None:
-            span.set_attribute(otel.LLM_TOKEN_COUNT_COMPLETION, usage.response_tokens)
+        if usage.input_tokens is not None:
+            span.set_attribute(otel.LLM_TOKEN_COUNT_PROMPT, usage.input_tokens)
+        if usage.output_tokens is not None:
+            span.set_attribute(otel.LLM_TOKEN_COUNT_COMPLETION, usage.output_tokens)
         if usage.total_tokens is not None:
             span.set_attribute(otel.LLM_TOKEN_COUNT_TOTAL, usage.total_tokens)
 

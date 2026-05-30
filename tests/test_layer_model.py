@@ -33,7 +33,7 @@ def test_max_output_tokens_positive() -> None:
 def test_frozen() -> None:
     layer = ModelLayer(model_id="test:echo")
     with pytest.raises(ValidationError):
-        layer.temperature = 0.1  # type: ignore[misc]
+        layer.temperature = 0.1
 
 
 def test_extra_forbidden() -> None:
