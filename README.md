@@ -166,6 +166,26 @@ auto-resolve. The UI is a thin shell over the AgentComposer API: no catalog
 value or layer field is hardcoded, validation is the backend's, and `/export`
 owns the filesystem. See [studio-web/README.md](studio-web/README.md) to run it.
 
+### App startup script
+
+Start the AgentComposer API and Agent Studio UI together from the repo root:
+
+```bash
+uv sync --extra api
+uv run uvicorn composer.app:app --reload &
+api_pid=$!
+trap 'kill "$api_pid"' EXIT
+
+(
+  cd studio-web
+  npm install
+  npm run dev
+)
+```
+
+Backend: `http://localhost:8000`
+Frontend: `http://localhost:5173`
+
 ## Out of scope (so far)
 
 - Importing existing Langfuse-traced runs back into the contract.

@@ -16,6 +16,8 @@ import { LaneNode } from "./LaneNode";
 import { LANE_HEIGHT, LANE_WIDTH, useGraph } from "../state/graphStore";
 
 const nodeTypes = { agent: AgentNode, lane: LaneNode };
+const AGENT_NODE_ESTIMATED_HEIGHT = 112;
+const LANE_PADDING = 12;
 
 /** Downstream-reachable node + edge ids from a starting node (the resolution path). */
 function reachableFrom(
@@ -43,8 +45,23 @@ function reachableFrom(
 }
 
 function laneIndexFromY(y: number, layerCount: number): number {
-  const idx = Math.floor((y + LANE_HEIGHT / 2) / LANE_HEIGHT);
+  const idx = Math.floor(y / LANE_HEIGHT);
   return Math.max(0, Math.min(layerCount - 1, idx));
+}
+
+function clampPositionToLane(
+  position: { x: number; y: number },
+  laneIndex: number,
+  nodeHeight = AGENT_NODE_ESTIMATED_HEIGHT
+): { x: number; y: number } {
+  const laneTop = laneIndex * LANE_HEIGHT;
+  const minY = laneTop + LANE_PADDING;
+  const maxY = laneTop + LANE_HEIGHT - nodeHeight - LANE_PADDING;
+
+  return {
+    x: position.x,
+    y: Math.max(minY, Math.min(position.y, Math.max(minY, maxY))),
+  };
 }
 
 function InnerCanvas() {
@@ -151,8 +168,10 @@ function InnerCanvas() {
   const onNodeDragStop = useCallback(
     (_e: unknown, node: Node) => {
       if (node.type !== "agent") return;
-      store.setPosition(node.id, node.position);
-      const newLayer = store.layers[laneIndexFromY(node.position.y, store.layers.length)];
+      const laneIndex = laneIndexFromY(node.position.y, store.layers.length);
+      const clampedPosition = clampPositionToLane(node.position, laneIndex, node.measured?.height);
+      store.setPosition(node.id, clampedPosition);
+      const newLayer = store.layers[laneIndex];
       const current = store.nodes.find((n) => n.id === node.id);
       if (current && current.layer !== newLayer) store.setNodeLayer(node.id, newLayer);
     },
@@ -164,8 +183,9 @@ function InnerCanvas() {
       event.preventDefault();
       if (event.dataTransfer.getData("application/agent-node") !== "1") return;
       const pos = screenToFlowPosition({ x: event.clientX, y: event.clientY });
-      const layer = store.layers[laneIndexFromY(pos.y, store.layers.length)];
-      store.addNode(layer, pos);
+      const laneIndex = laneIndexFromY(pos.y, store.layers.length);
+      const layer = store.layers[laneIndex];
+      store.addNode(layer, clampPositionToLane(pos, laneIndex));
     },
     [screenToFlowPosition, store]
   );
