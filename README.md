@@ -26,14 +26,28 @@ OpenInference attribute names. Wire any OTLP-compatible backend (Langfuse,
 Phoenix, Arize, Logfire, Jaeger, …) at the host-app level — the framework
 bundles no exporter.
 
-## Install
+## Install with uv
 
 ```bash
-pip install -e ".[dev]"
+uv sync --extra dev
 ```
 
 Core dependencies: `pydantic`, `pydantic-ai`, `opentelemetry-api`,
 `opentelemetry-sdk`. No FastAPI, no HTTP, no web — Era I is a library.
+
+For the API layer, include the `api` extra too:
+
+```bash
+uv sync --extra dev --extra api
+```
+
+Run project commands through `uv` so they use the managed environment:
+
+```bash
+uv run pytest
+uv run ruff check .
+uv run mypy agentfactory
+```
 
 ## Quick start
 
@@ -121,8 +135,8 @@ the framework and exposes its catalogs, layer schemas, and validation over HTTP
 — the framework never imports `composer`. Install the API extra and run it:
 
 ```bash
-pip install -e ".[api]"
-uvicorn composer.app:app --reload
+uv sync --extra api
+uv run uvicorn composer.app:app --reload
 ```
 
 Every request carries its own graph (nodes = agents, edges = "A calls B"); the
@@ -141,9 +155,19 @@ server holds no session state. Endpoints:
 The exported tree imports with only `agentfactory` installed — zero runtime
 dependency on the API.
 
+## Agent Studio UI (Era III)
+
+A ComfyUI-style web canvas for authoring **layered agent networks** lives in
+`studio-web/`. Agents are arranged in horizontal **tiers** (e.g. refinement →
+orchestrator → tools); a tier may only call the one directly below it, so the
+path from a trigger to query resolution is explicit. You set a model per agent
+and define tools on the tool tier — IO, wiring, and caller permissions
+auto-resolve. The UI is a thin shell over the AgentComposer API: no catalog
+value or layer field is hardcoded, validation is the backend's, and `/export`
+owns the filesystem. See [studio-web/README.md](studio-web/README.md) to run it.
+
 ## Out of scope (so far)
 
-- Visual editor (Era III — `Agent Studio UI`).
 - Importing existing Langfuse-traced runs back into the contract.
 
 See [docs/eras.html](docs/eras.html) for the full three-era roadmap. See
