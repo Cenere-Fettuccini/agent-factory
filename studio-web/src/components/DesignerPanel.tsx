@@ -68,6 +68,13 @@ export function DesignerPanel() {
           </div>
           <p className="designer-sub">{progressText}</p>
         </>
+      ) : status === "error" ? (
+        <>
+          <p className="designer-hint">Couldn&apos;t start the in-browser model.</p>
+          <button className="primary" onClick={designer.load}>
+            Try again
+          </button>
+        </>
       ) : (
         <>
           <textarea

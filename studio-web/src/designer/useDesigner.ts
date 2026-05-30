@@ -43,6 +43,49 @@ function webgpuAvailable(): boolean {
   return typeof navigator !== "undefined" && "gpu" in navigator;
 }
 
+// Minimal structural typing so we can probe WebGPU without pulling @webgpu/types.
+interface MinimalAdapter {
+  requestDevice(): Promise<{ destroy: () => void }>;
+}
+interface MinimalGPU {
+  requestAdapter(): Promise<MinimalAdapter | null>;
+}
+function getGPU(): MinimalGPU | undefined {
+  return (navigator as unknown as { gpu?: MinimalGPU }).gpu;
+}
+
+// `navigator.gpu` existing isn't enough: a browser can expose WebGPU yet fail to
+// create a device (stale driver, or Chrome's dxil.dll shader compiler failing to
+// load on Windows). We probe adapter+device up front so that surfaces as plain
+// guidance instead of a raw C++ stack trace from deep inside the engine.
+// Returns null on success, "no-webgpu" when absent, else a human-readable reason.
+async function preflightWebGPU(): Promise<string | null> {
+  const gpu = getGPU();
+  if (!gpu) return "no-webgpu";
+  let adapter: MinimalAdapter | null = null;
+  try {
+    adapter = await gpu.requestAdapter();
+  } catch {
+    adapter = null;
+  }
+  if (!adapter) {
+    return "WebGPU is present but no GPU adapter is available. Update your GPU driver, or use desktop Chrome or Edge.";
+  }
+  try {
+    const device = await adapter.requestDevice();
+    device.destroy();
+    return null;
+  } catch (e) {
+    const detail = e instanceof Error ? e.message : String(e);
+    return (
+      "WebGPU is present but your browser couldn't create a GPU device — often a " +
+      "Chrome/Edge or GPU-driver version issue (e.g. a dxil.dll load failure on " +
+      "Windows). Update your browser and GPU driver, then reload.\n\n" +
+      detail
+    );
+  }
+}
+
 export function useDesigner(): DesignerState {
   const engineRef = useRef<MLCEngineInterface | null>(null);
   const [status, setStatus] = useState<DesignerStatus>(
@@ -54,12 +97,18 @@ export function useDesigner(): DesignerState {
 
   const load = useCallback(async () => {
     if (engineRef.current || status === "loading") return;
-    if (!webgpuAvailable()) {
+    setError(null);
+    const problem = await preflightWebGPU();
+    if (problem === "no-webgpu") {
       setStatus("unsupported");
       return;
     }
+    if (problem) {
+      setError(problem);
+      setStatus("error");
+      return;
+    }
     setStatus("loading");
-    setError(null);
     try {
       const { CreateWebWorkerMLCEngine } = await import("@mlc-ai/web-llm");
       const worker = new Worker(new URL("./worker.ts", import.meta.url), {
