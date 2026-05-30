@@ -56,6 +56,7 @@ interface GraphState {
 
   selectedNodeId: string | null;
   autoResolve: boolean;
+  designerOpen: boolean;
   issues: ValidationIssue[];
   preview: PreviewResult | null;
   dryRun: DryRunResult | null;
@@ -86,6 +87,7 @@ interface GraphState {
 
   select: (id: string | null) => void;
   toggleAutoResolve: () => void;
+  setDesignerOpen: (open: boolean) => void;
   setIssues: (issues: ValidationIssue[]) => void;
   setPreview: (preview: PreviewResult | null) => void;
   setDryRun: (dryRun: DryRunResult | null) => void;
@@ -130,6 +132,7 @@ export const useGraph = create<GraphState>((set, get) => ({
 
   selectedNodeId: null,
   autoResolve: true,
+  designerOpen: false,
   issues: [],
   preview: null,
   dryRun: null,
@@ -237,6 +240,7 @@ export const useGraph = create<GraphState>((set, get) => ({
 
   select: (id) => set({ selectedNodeId: id }),
   toggleAutoResolve: () => set((s) => ({ autoResolve: !s.autoResolve })),
+  setDesignerOpen: (open) => set({ designerOpen: open }),
   setIssues: (issues) => set({ issues }),
   setPreview: (preview) => set({ preview }),
   setDryRun: (dryRun) => set({ dryRun }),

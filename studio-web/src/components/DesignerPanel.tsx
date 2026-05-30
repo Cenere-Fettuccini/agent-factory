@@ -12,7 +12,11 @@ const EXAMPLE = "Summarize incoming support tickets and route urgent ones to a h
 export function DesignerPanel() {
   const designer = useDesigner();
   const loadProposal = useGraph((s) => s.loadProposal);
-  const [open, setOpen] = useState(false);
+  // Open-state lives in the store so the canvas right-click menu can raise it.
+  // The component stays mounted while closed (returns null) so a loaded model
+  // survives open/close.
+  const open = useGraph((s) => s.designerOpen);
+  const setOpen = useGraph((s) => s.setDesignerOpen);
   const [prompt, setPrompt] = useState("");
 
   const { status, progress, progressText, error } = designer;
@@ -28,13 +32,7 @@ export function DesignerPanel() {
     if (proposal) loadProposal(proposal);
   }
 
-  if (!open) {
-    return (
-      <button className="designer-fab" onClick={() => setOpen(true)} title="Design an agent network with an in-browser model">
-        ✦ Design with AI
-      </button>
-    );
-  }
+  if (!open) return null;
 
   return (
     <div className="designer-panel">

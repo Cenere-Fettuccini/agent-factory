@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Background,
   Controls,
@@ -64,11 +64,18 @@ function clampPositionToLane(
   };
 }
 
+interface CanvasMenu {
+  x: number;
+  y: number;
+  flow: { x: number; y: number };
+}
+
 function InnerCanvas() {
   const store = useGraph();
   const { screenToFlowPosition } = useReactFlow();
   const [rfNodes, setRfNodes, onNodesChange] = useNodesState<Node>([]);
   const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState<Edge>([]);
+  const [menu, setMenu] = useState<CanvasMenu | null>(null);
 
   const errorByNode = useMemo(() => {
     const m = new Map<string, string>();
@@ -195,7 +202,27 @@ function InnerCanvas() {
     event.dataTransfer.dropEffect = "move";
   }, []);
 
+  // ComfyUI-style: right-click the canvas to add an agent or open the designer.
+  const onPaneContextMenu = useCallback(
+    (event: React.MouseEvent | MouseEvent) => {
+      event.preventDefault();
+      const flow = screenToFlowPosition({ x: event.clientX, y: event.clientY });
+      setMenu({ x: event.clientX, y: event.clientY, flow });
+    },
+    [screenToFlowPosition]
+  );
+
+  const addAgentHere = useCallback(
+    (flow: { x: number; y: number }) => {
+      const laneIndex = laneIndexFromY(flow.y, store.layers.length);
+      store.addNode(store.layers[laneIndex], clampPositionToLane(flow, laneIndex));
+      setMenu(null);
+    },
+    [store]
+  );
+
   return (
+    <>
     <ReactFlow
       nodes={rfNodes}
       edges={rfEdges}
@@ -205,7 +232,11 @@ function InnerCanvas() {
       isValidConnection={isValidConnection}
       onNodeDragStop={onNodeDragStop}
       onNodeClick={(_e, node) => node.type === "agent" && store.select(node.id)}
-      onPaneClick={() => store.select(null)}
+      onPaneClick={() => {
+        store.select(null);
+        setMenu(null);
+      }}
+      onPaneContextMenu={onPaneContextMenu}
       onEdgeClick={(_e, edge) => {
         if (edge.source && edge.target) store.removeEdge(edge.source, edge.target);
       }}
@@ -219,6 +250,34 @@ function InnerCanvas() {
       <Background color="#2a3042" gap={24} />
       <Controls />
     </ReactFlow>
+
+    {menu && (
+      <>
+        <div
+          className="ctx-backdrop"
+          onClick={() => setMenu(null)}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setMenu(null);
+          }}
+        />
+        <div className="ctx-menu" style={{ top: menu.y, left: menu.x }}>
+          <button
+            className="ctx-item accent"
+            onClick={() => {
+              store.setDesignerOpen(true);
+              setMenu(null);
+            }}
+          >
+            ✦ Design with AI
+          </button>
+          <button className="ctx-item" onClick={() => addAgentHere(menu.flow)}>
+            + Add agent here
+          </button>
+        </div>
+      </>
+    )}
+    </>
   );
 }
 

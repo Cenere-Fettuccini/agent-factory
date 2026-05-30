@@ -128,14 +128,25 @@ textarea { resize: vertical; min-height: 48px; font-family: inherit; }
 .issue .sev.error { color: var(--danger); }
 .issue .sev.warning { color: var(--warn); }
 
-/* Design-with-AI panel (floats over the canvas, bottom-left) */
-.designer-fab {
-  position: absolute; left: 16px; bottom: 16px; z-index: 20;
-  background: var(--era3); color: #1a1030; border-color: var(--era3);
-  font-weight: 600;
+/* Right-click canvas menu (ComfyUI-style) */
+.ctx-backdrop { position: fixed; inset: 0; z-index: 30; }
+.ctx-menu {
+  position: fixed; z-index: 31; min-width: 168px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+  padding: 4px; box-shadow: 0 8px 30px rgba(0,0,0,0.5);
 }
+.ctx-item {
+  display: block; width: 100%; text-align: left;
+  background: transparent; border: none; border-radius: 6px;
+  padding: 7px 10px; font-size: 13px; color: var(--ink); cursor: pointer;
+}
+.ctx-item:hover { background: var(--panel-2); }
+.ctx-item.accent { color: var(--era3); font-weight: 600; }
+
+/* Design-with-AI popover (floats top-center, clear of the view controls) */
 .designer-panel {
-  position: absolute; left: 16px; bottom: 16px; z-index: 20; width: 300px;
+  position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
+  z-index: 20; width: 320px;
   background: var(--panel); border: 1px solid var(--era3); border-radius: 12px;
   padding: 14px; box-shadow: 0 8px 30px rgba(0,0,0,0.4);
 }
