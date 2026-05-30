@@ -247,6 +247,9 @@ function InnerCanvas() {
         setMenu(null);
       }}
       onPaneContextMenu={onPaneContextMenu}
+      // Lane (tier) bands are nodes too, so a right-click over them lands here,
+      // not on the pane — route it to the same menu instead of the native one.
+      onNodeContextMenu={onPaneContextMenu}
       onEdgeClick={(_e, edge) => {
         if (edge.source && edge.target) store.removeEdge(edge.source, edge.target);
       }}
