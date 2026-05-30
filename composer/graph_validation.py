@@ -58,7 +58,7 @@ def validate_graph(graph: Graph) -> ValidationResult:
 
     ids = set(graph.node_ids())
 
-    # 2. Edge endpoints exist.
+    # 2. Edge endpoints exist, and calls only cross to the tier directly below.
     adjacency: dict[str, list[str]] = {nid: [] for nid in ids}
     for edge in graph.edges:
         for end in (edge.source, edge.target):
@@ -73,6 +73,7 @@ def validate_graph(graph: Graph) -> ValidationResult:
                 )
         if edge.source in adjacency and edge.target in ids:
             adjacency[edge.source].append(edge.target)
+            issues.extend(_check_adjacency(graph, edge.source, edge.target))
 
     # 3. Recursion within declared limits (cycle detection with depth check).
     for cycle in _find_cycles(adjacency):
@@ -92,6 +93,38 @@ def validate_graph(graph: Graph) -> ValidationResult:
 
     valid = not any(i.severity == "error" for i in issues)
     return ValidationResult(valid=valid, issues=issues)
+
+
+def _check_adjacency(
+    graph: Graph, source: str, target: str
+) -> list[ValidationIssue]:
+    """A call may only cross from a tier to the one directly below it.
+
+    Only enforced when both endpoints carry a tier in ``graph.layers``; tierless
+    graphs are validated exactly as before.
+    """
+    src_node = graph.get(source)
+    tgt_node = graph.get(target)
+    if src_node is None or tgt_node is None:
+        return []
+    src_i = graph.layer_index(src_node.layer)
+    tgt_i = graph.layer_index(tgt_node.layer)
+    if src_i is None or tgt_i is None:
+        return []
+    if tgt_i != src_i + 1:
+        return [
+            ValidationIssue(
+                severity="error",
+                code="non_adjacent_call",
+                message=(
+                    f"call {source!r} -> {target!r} crosses tiers "
+                    f"{src_node.layer!r} -> {tgt_node.layer!r}; a tier may only "
+                    "call the tier directly below it"
+                ),
+                edge=(source, target),
+            )
+        ]
+    return []
 
 
 def _find_cycles(adjacency: dict[str, list[str]]) -> list[list[str]]:

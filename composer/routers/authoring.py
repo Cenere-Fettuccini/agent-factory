@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, HTTPException
 
 from composer.export import ExportError, ExportResult, export_graph
@@ -13,8 +15,9 @@ from composer.preview import (
     preview_agent,
 )
 from composer.resolver import resolve
-from composer.schemas.graph import Graph, GraphNode
-from composer.schemas.requests import ExportRequest
+from composer.schemas.graph import Graph, ToolDef
+from composer.schemas.requests import ExportRequest, PreviewRequest
+from composer.tool_defs import validate_tool_def
 
 router = APIRouter(tags=["authoring"])
 
@@ -32,9 +35,15 @@ def post_presets_resolve(graph: Graph) -> Graph:
 
 
 @router.post("/agents/preview")
-def post_agents_preview(node: GraphNode) -> PreviewResult:
+def post_agents_preview(request: PreviewRequest) -> PreviewResult:
     """Build one agent and return its frozen describe-output."""
-    return preview_agent(node)
+    return preview_agent(request.node, request.tool_defs)
+
+
+@router.post("/tools/validate")
+def post_tools_validate(tool_def: ToolDef) -> dict[str, Any]:
+    """Validate one UI-authored tool and echo its derived JSON Schema."""
+    return validate_tool_def(tool_def)
 
 
 @router.post("/export/dry-run")

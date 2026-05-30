@@ -43,7 +43,9 @@ def test_resolve_endpoint(client: TestClient) -> None:
 def test_preview_endpoint(client: TestClient) -> None:
     node = {"id": "pv", "description": "summarise"}
     resolved = client.post("/presets/resolve", json={"nodes": [node]}).json()
-    result = client.post("/agents/preview", json=resolved["nodes"][0]).json()
+    result = client.post(
+        "/agents/preview", json={"node": resolved["nodes"][0]}
+    ).json()
     assert result["ok"] is True
     assert result["agent"]["identity"]["id"] == "pv"
 

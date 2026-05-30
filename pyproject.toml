@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "agentfactory"
-version = "0.2.0"
+version = "0.3.0"
 description = "Typed, layered framework for building well-bounded agents."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -50,6 +50,9 @@ asyncio_mode = "auto"
 filterwarnings = [
     "error",
     "ignore::DeprecationWarning:pydantic.*",
+    # opentelemetry >=1.39 emits a DeprecationWarning at import (EventLogger,
+    # via typing_extensions). Third-party and unrelated to our code.
+    "ignore:.*Deprecated since version 1.39.0.*:DeprecationWarning",
 ]
 
 [tool.ruff]

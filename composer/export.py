@@ -14,6 +14,7 @@ from pydantic import BaseModel
 
 from composer.build import NodeBuildError, node_to_agent
 from composer.schemas.graph import Graph
+from composer.tool_defs import ToolDefError, registered_tools, render_tools_module
 
 
 class ExportError(Exception):
@@ -69,12 +70,17 @@ def export_graph(graph: Graph, dest: str, *, overwrite: bool = False) -> ExportR
     destination = _guard_destination(dest)
 
     # Build everything up front so a bad node aborts before touching disk.
+    # UI-authored tools are registered transiently so grants validate.
     built = {}
-    for node in graph.nodes:
-        try:
-            built[node.id] = node_to_agent(node)
-        except NodeBuildError as exc:
-            raise ExportError(f"node {node.id!r} is invalid: {exc}") from exc
+    try:
+        with registered_tools(graph.tool_defs):
+            for node in graph.nodes:
+                try:
+                    built[node.id] = node_to_agent(node)
+                except NodeBuildError as exc:
+                    raise ExportError(f"node {node.id!r} is invalid: {exc}") from exc
+    except ToolDefError as exc:
+        raise ExportError(f"authored tool is invalid: {exc}") from exc
 
     if destination.exists() and any(destination.iterdir()) and not overwrite:
         raise ExportError(
@@ -86,6 +92,14 @@ def export_graph(graph: Graph, dest: str, *, overwrite: bool = False) -> ExportR
 
     init_lines = ['"""Auto-generated agent package. Do not edit."""', ""]
     exports: list[str] = []
+
+    # Tool stubs must register before any agent loader runs, so grants resolve.
+    if graph.tool_defs:
+        (destination / "_tools.py").write_text(
+            render_tools_module(graph.tool_defs), encoding="utf-8"
+        )
+        files.append("_tools.py")
+        init_lines.append("from . import _tools as _tools  # registers authored tools")
 
     for agent_id, agent in built.items():
         module = _module_name(agent_id)

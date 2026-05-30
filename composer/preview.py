@@ -6,13 +6,15 @@ the framework accept or reject them.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import Any
 
 from pydantic import BaseModel
 
 from composer.build import NodeBuildError, node_to_agent
 from composer.graph_validation import ValidationResult, validate_graph
-from composer.schemas.graph import Graph, GraphNode
+from composer.schemas.graph import Graph, GraphNode, ToolDef
+from composer.tool_defs import ToolDefError, registered_tools
 
 
 class PreviewResult(BaseModel):
@@ -38,11 +40,18 @@ class DryRunResult(BaseModel):
     nodes: list[DryRunNode]
 
 
-def preview_agent(node: GraphNode) -> PreviewResult:
-    """Build one agent and return its frozen describe-output."""
+def preview_agent(
+    node: GraphNode, tool_defs: Iterable[ToolDef] = ()
+) -> PreviewResult:
+    """Build one agent and return its frozen describe-output.
+
+    ``tool_defs`` are any UI-authored tools the node may grant; they are
+    registered transiently so grants validate.
+    """
     try:
-        agent = node_to_agent(node)
-    except NodeBuildError as exc:
+        with registered_tools(tool_defs):
+            agent = node_to_agent(node)
+    except (NodeBuildError, ToolDefError) as exc:
         return PreviewResult(node_id=node.id, ok=False, error=str(exc))
     return PreviewResult(
         node_id=node.id, ok=True, agent=agent.model_dump(mode="json")
@@ -53,12 +62,19 @@ def dry_run(graph: Graph) -> DryRunResult:
     """Structurally validate, then instantiate every node in memory."""
     structural = validate_graph(graph)
     nodes: list[DryRunNode] = []
-    for node in graph.nodes:
-        try:
-            node_to_agent(node)
-            nodes.append(DryRunNode(node_id=node.id, ok=True))
-        except NodeBuildError as exc:
-            nodes.append(DryRunNode(node_id=node.id, ok=False, error=str(exc)))
+    try:
+        with registered_tools(graph.tool_defs):
+            for node in graph.nodes:
+                try:
+                    node_to_agent(node)
+                    nodes.append(DryRunNode(node_id=node.id, ok=True))
+                except NodeBuildError as exc:
+                    nodes.append(
+                        DryRunNode(node_id=node.id, ok=False, error=str(exc))
+                    )
+    except ToolDefError as exc:
+        # A bad/colliding tool definition invalidates the whole graph.
+        nodes = [DryRunNode(node_id=n.id, ok=False, error=str(exc)) for n in graph.nodes]
 
     ok = structural.valid and all(n.ok for n in nodes)
     return DryRunResult(ok=ok, structural=structural, nodes=nodes)

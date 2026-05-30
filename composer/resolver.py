@@ -43,6 +43,25 @@ def infer_model_id(description: str) -> str:
     return tier if MODELS.contains(tier) else _TIER_SONNET
 
 
+def infer_model_for_layer(layer: str | None) -> str | None:
+    """Bias a model tier from the node's network role, if the name is telling.
+
+    Tool tiers want a fast model; orchestration/refinement tiers want reasoning.
+    Returns None when the layer name carries no signal, so the caller can fall
+    back to description-based inference.
+    """
+    if not layer:
+        return None
+    name = layer.lower()
+    if "tool" in name:
+        tier = _TIER_HAIKU
+    elif any(k in name for k in ("orchestr", "plan", "reason", "refine")):
+        tier = _TIER_OPUS
+    else:
+        return None
+    return tier if MODELS.contains(tier) else _TIER_SONNET
+
+
 def _starter_io() -> dict[str, object]:
     return {
         "input_schema": {
@@ -61,10 +80,14 @@ def resolve(graph: Graph) -> Graph:
     # Work on a deep copy so the input payload is never mutated.
     resolved = graph.model_copy(deep=True)
 
-    # 1. Per-node field defaults (only when unset).
+    # 1. Per-node field defaults (only when unset). The node's tier biases the
+    # model when its name is telling; otherwise the description decides.
     for node in resolved.nodes:
         if node.model is None:
-            node.model = {"model_id": infer_model_id(node.description)}
+            model_id = infer_model_for_layer(node.layer) or infer_model_id(
+                node.description
+            )
+            node.model = {"model_id": model_id}
         if node.io is None:
             node.io = _starter_io()
 

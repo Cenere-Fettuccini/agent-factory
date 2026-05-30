@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
+import functools
+import inspect
 import json
 from typing import TYPE_CHECKING, Any
 
@@ -33,6 +36,58 @@ class PolicyExceeded(AgentFactoryError):
 
 # compile cache keyed by identity id + version
 _COMPILED: dict[tuple[str, str], PydanticAIAgent[Any, BaseModel]] = {}
+
+
+class _ToolCallBudget:
+    """Per-run counter for tool invocations (pydantic_ai dropped its own cap)."""
+
+    __slots__ = ("limit", "count")
+
+    def __init__(self, limit: int | None) -> None:
+        self.limit = limit
+        self.count = 0
+
+
+# Set fresh by run() for each execution; wrapped tools charge against it.
+_tool_call_budget: contextvars.ContextVar[_ToolCallBudget] = contextvars.ContextVar(
+    "af_tool_call_budget", default=_ToolCallBudget(None)
+)
+
+
+def _wrap_tool_with_budget(func):
+    """Wrap a tool callable so each call is charged against the per-run
+    max_tool_calls budget, raising PolicyExceeded once the cap is exceeded.
+
+    pydantic_ai removed its built-in per-tool-call limit, so we enforce it here.
+    The signature/annotations of the original are preserved so pydantic_ai still
+    builds the correct tool schema.
+    """
+
+    def _charge() -> None:
+        budget = _tool_call_budget.get()
+        if budget.limit is None:
+            return
+        budget.count += 1
+        if budget.count > budget.limit:
+            raise PolicyExceeded(f"max_tool_calls ({budget.limit}) exceeded")
+
+    if inspect.iscoroutinefunction(func):
+
+        @functools.wraps(func)
+        async def awrapper(*args, **kwargs):
+            _charge()
+            return await func(*args, **kwargs)
+
+        awrapper.__signature__ = inspect.signature(func)
+        return awrapper
+
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        _charge()
+        return func(*args, **kwargs)
+
+    wrapper.__signature__ = inspect.signature(func)
+    return wrapper
 
 
 def _classify(exc: BaseException) -> str:
@@ -74,18 +129,20 @@ def compile(agent: Agent) -> PydanticAIAgent[Any, BaseModel]:
 
     for tool_id in agent.tools.tool_grants:
         tool_spec = TOOLS.get(tool_id)
-        pai_agent.tool_plain(tool_spec.callable)
+        pai_agent.tool_plain(_wrap_tool_with_budget(tool_spec.callable))
 
     _COMPILED[key] = pai_agent
     return pai_agent
 
 
 def _usage_limits(agent: Agent) -> UsageLimits:
+    # pydantic_ai's UsageLimits dropped the per-tool-call limit and renamed the
+    # token fields, so max_tool_calls is enforced manually via _tool_call_budget
+    # (max_steps still bounds the request loop).
     return UsageLimits(
         request_limit=agent.policy.max_steps,
-        tool_calls_limit=agent.policy.max_tool_calls,
-        input_tokens_limit=agent.policy.max_input_tokens,
-        output_tokens_limit=agent.policy.max_output_tokens,
+        request_tokens_limit=agent.policy.max_input_tokens,
+        response_tokens_limit=agent.policy.max_output_tokens,
     )
 
 
@@ -114,6 +171,9 @@ async def run(
         # 2. Compile (cached).
         pai_agent = compile(agent)
         limits = _usage_limits(agent)
+        # Reset the per-run tool-call budget; wrapped tools charge against it
+        # since pydantic_ai no longer enforces max_tool_calls itself.
+        _tool_call_budget.set(_ToolCallBudget(agent.policy.max_tool_calls))
         prompt = json.dumps(validated_input, default=str)
 
         # 3 + 4. Run under timeout + usage limits, with error-policy retries.
@@ -164,11 +224,11 @@ async def run(
         outbound.validate_against(agent.io.output_schema)
         span.set_attribute(otel.OUTPUT_VALUE, json.dumps(output_data, default=str))
 
-        usage = result.usage
-        if usage.input_tokens is not None:
-            span.set_attribute(otel.LLM_TOKEN_COUNT_PROMPT, usage.input_tokens)
-        if usage.output_tokens is not None:
-            span.set_attribute(otel.LLM_TOKEN_COUNT_COMPLETION, usage.output_tokens)
+        usage = result.usage()
+        if usage.request_tokens is not None:
+            span.set_attribute(otel.LLM_TOKEN_COUNT_PROMPT, usage.request_tokens)
+        if usage.response_tokens is not None:
+            span.set_attribute(otel.LLM_TOKEN_COUNT_COMPLETION, usage.response_tokens)
         if usage.total_tokens is not None:
             span.set_attribute(otel.LLM_TOKEN_COUNT_TOTAL, usage.total_tokens)
 

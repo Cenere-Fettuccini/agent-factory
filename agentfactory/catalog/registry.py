@@ -40,6 +40,15 @@ class Registry(Generic[T]):
                 f"unknown {self._label} {id!r}; known: {sorted(self._items)}"
             ) from None
 
+    def unregister(self, id: str) -> None:
+        """Remove an entry. Raises ``UnknownCatalogEntry`` if it isn't present."""
+        try:
+            del self._items[id]
+        except KeyError:
+            raise UnknownCatalogEntry(
+                f"unknown {self._label} {id!r}; known: {sorted(self._items)}"
+            ) from None
+
     def contains(self, id: str) -> bool:
         return id in self._items
 

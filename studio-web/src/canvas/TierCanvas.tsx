@@ -1,0 +1,211 @@
+import { useCallback, useEffect, useMemo } from "react";
+import {
+  Background,
+  Controls,
+  ReactFlow,
+  ReactFlowProvider,
+  useEdgesState,
+  useNodesState,
+  useReactFlow,
+  type Connection,
+  type Edge,
+  type Node,
+} from "@xyflow/react";
+import { AgentNode } from "./AgentNode";
+import { LaneNode } from "./LaneNode";
+import { LANE_HEIGHT, LANE_WIDTH, useGraph } from "../state/graphStore";
+
+const nodeTypes = { agent: AgentNode, lane: LaneNode };
+
+/** Downstream-reachable node + edge ids from a starting node (the resolution path). */
+function reachableFrom(
+  start: string | null,
+  edges: { source: string; target: string }[]
+): { nodes: Set<string>; edges: Set<string> } {
+  const nodes = new Set<string>();
+  const edgeIds = new Set<string>();
+  if (!start) return { nodes, edges: edgeIds };
+  nodes.add(start);
+  const queue = [start];
+  while (queue.length) {
+    const cur = queue.shift()!;
+    for (const e of edges) {
+      if (e.source === cur) {
+        edgeIds.add(`${e.source}->${e.target}`);
+        if (!nodes.has(e.target)) {
+          nodes.add(e.target);
+          queue.push(e.target);
+        }
+      }
+    }
+  }
+  return { nodes, edges: edgeIds };
+}
+
+function laneIndexFromY(y: number, layerCount: number): number {
+  const idx = Math.floor((y + LANE_HEIGHT / 2) / LANE_HEIGHT);
+  return Math.max(0, Math.min(layerCount - 1, idx));
+}
+
+function InnerCanvas() {
+  const store = useGraph();
+  const { screenToFlowPosition } = useReactFlow();
+  const [rfNodes, setRfNodes, onNodesChange] = useNodesState<Node>([]);
+  const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState<Edge>([]);
+
+  const errorByNode = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const issue of store.issues) {
+      if (issue.severity === "error" && issue.node_id) {
+        m.set(issue.node_id, issue.message);
+      }
+    }
+    if (store.dryRun) {
+      for (const dn of store.dryRun.nodes) {
+        if (!dn.ok && dn.error) m.set(dn.node_id, dn.error);
+      }
+    }
+    return m;
+  }, [store.issues, store.dryRun]);
+
+  const path = useMemo(
+    () => reachableFrom(store.selectedNodeId, store.edges),
+    [store.selectedNodeId, store.edges]
+  );
+
+  // Rebuild React Flow nodes/edges whenever the canonical graph changes.
+  useEffect(() => {
+    const lanes: Node[] = store.layers.map((label, i) => ({
+      id: `lane-${i}`,
+      type: "lane",
+      position: { x: 0, y: i * LANE_HEIGHT },
+      data: { label, index: i },
+      draggable: false,
+      selectable: false,
+      zIndex: 0,
+      style: { width: LANE_WIDTH, height: LANE_HEIGHT },
+    }));
+
+    const agents: Node[] = store.nodes.map((n) => ({
+      id: n.id,
+      type: "agent",
+      position: store.positions[n.id] ?? { x: 60, y: 40 },
+      selected: n.id === store.selectedNodeId,
+      zIndex: 1,
+      data: {
+        node: n,
+        hasError: errorByNode.has(n.id),
+        errorMsg: errorByNode.get(n.id) ?? null,
+        onPath: store.selectedNodeId !== null && path.nodes.has(n.id) && n.id !== store.selectedNodeId,
+        isTopTier: store.layerIndex(n.layer) === 0,
+      },
+    }));
+
+    setRfNodes([...lanes, ...agents]);
+  }, [
+    store.layers,
+    store.nodes,
+    store.positions,
+    store.selectedNodeId,
+    errorByNode,
+    path,
+    setRfNodes,
+  ]);
+
+  useEffect(() => {
+    setRfEdges(
+      store.edges.map((e) => {
+        const onPath = path.edges.has(`${e.source}->${e.target}`);
+        return {
+          id: `${e.source}->${e.target}`,
+          source: e.source,
+          target: e.target,
+          animated: onPath,
+          style: onPath ? { stroke: "var(--era2)", strokeWidth: 2 } : { stroke: "var(--muted)" },
+        };
+      })
+    );
+  }, [store.edges, path, setRfEdges]);
+
+  const isValidConnection = useCallback(
+    (c: Connection | Edge) => {
+      if (!c.source || !c.target || c.source === c.target) return false;
+      const src = store.nodes.find((n) => n.id === c.source);
+      const tgt = store.nodes.find((n) => n.id === c.target);
+      if (!src || !tgt) return false;
+      const si = store.layerIndex(src.layer);
+      const ti = store.layerIndex(tgt.layer);
+      // Only allow a call to the tier directly below.
+      return si !== null && ti !== null && ti === si + 1;
+    },
+    [store]
+  );
+
+  const onConnect = useCallback(
+    (c: Connection) => {
+      if (c.source && c.target) store.addEdge(c.source, c.target);
+    },
+    [store]
+  );
+
+  const onNodeDragStop = useCallback(
+    (_e: unknown, node: Node) => {
+      if (node.type !== "agent") return;
+      store.setPosition(node.id, node.position);
+      const newLayer = store.layers[laneIndexFromY(node.position.y, store.layers.length)];
+      const current = store.nodes.find((n) => n.id === node.id);
+      if (current && current.layer !== newLayer) store.setNodeLayer(node.id, newLayer);
+    },
+    [store]
+  );
+
+  const onDrop = useCallback(
+    (event: React.DragEvent) => {
+      event.preventDefault();
+      if (event.dataTransfer.getData("application/agent-node") !== "1") return;
+      const pos = screenToFlowPosition({ x: event.clientX, y: event.clientY });
+      const layer = store.layers[laneIndexFromY(pos.y, store.layers.length)];
+      store.addNode(layer, pos);
+    },
+    [screenToFlowPosition, store]
+  );
+
+  const onDragOver = useCallback((event: React.DragEvent) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+  }, []);
+
+  return (
+    <ReactFlow
+      nodes={rfNodes}
+      edges={rfEdges}
+      onNodesChange={onNodesChange}
+      onEdgesChange={onEdgesChange}
+      onConnect={onConnect}
+      isValidConnection={isValidConnection}
+      onNodeDragStop={onNodeDragStop}
+      onNodeClick={(_e, node) => node.type === "agent" && store.select(node.id)}
+      onPaneClick={() => store.select(null)}
+      onEdgeClick={(_e, edge) => {
+        if (edge.source && edge.target) store.removeEdge(edge.source, edge.target);
+      }}
+      onDrop={onDrop}
+      onDragOver={onDragOver}
+      nodeTypes={nodeTypes}
+      minZoom={0.3}
+      defaultViewport={{ x: 80, y: 40, zoom: 0.85 }}
+      proOptions={{ hideAttribution: true }}
+    >
+      <Background color="#2a3042" gap={24} />
+      <Controls />
+    </ReactFlow>
+  );
+}
+
+export function TierCanvas() {
+  return (
+    <ReactFlowProvider>
+      <InnerCanvas />
+    </ReactFlowProvider>
+  );
+}

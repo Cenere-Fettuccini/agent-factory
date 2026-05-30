@@ -134,3 +134,54 @@ def test_spans_carry_openinference_attributes() -> None:
     assert otel.OUTPUT_VALUE in attrs
     assert otel.LLM_TOKEN_COUNT_PROMPT in attrs
     assert otel.LLM_TOKEN_COUNT_TOTAL in attrs
+
+
+def test_tool_call_budget_enforces_limit() -> None:
+    """A wrapped tool raises PolicyExceeded once max_tool_calls is exceeded."""
+    executor._tool_call_budget.set(executor._ToolCallBudget(2))
+
+    def echo(x: int) -> int:
+        return x
+
+    wrapped = executor._wrap_tool_with_budget(echo)
+    assert wrapped(1) == 1  # 1st call
+    assert wrapped(2) == 2  # 2nd call
+    with pytest.raises(executor.PolicyExceeded, match="max_tool_calls"):
+        wrapped(3)  # 3rd call exceeds the cap of 2
+
+
+def test_tool_call_budget_unlimited_when_none() -> None:
+    """A None limit (max_tool_calls unset) means calls are never capped."""
+    executor._tool_call_budget.set(executor._ToolCallBudget(None))
+
+    def echo(x: int) -> int:
+        return x
+
+    wrapped = executor._wrap_tool_with_budget(echo)
+    for i in range(50):
+        assert wrapped(i) == i
+
+
+def test_wrapped_tool_preserves_signature() -> None:
+    """The wrapper keeps the original signature so pydantic_ai builds the schema."""
+    import inspect
+
+    def tool(city: str, days: int = 1) -> str:
+        return f"{city}:{days}"
+
+    wrapped = executor._wrap_tool_with_budget(tool)
+    assert inspect.signature(wrapped) == inspect.signature(tool)
+    assert wrapped.__name__ == "tool"
+
+
+async def test_async_tool_charged_against_budget() -> None:
+    """Async tools are counted against the budget like sync ones."""
+    executor._tool_call_budget.set(executor._ToolCallBudget(1))
+
+    async def fetch(x: int) -> int:
+        return x
+
+    wrapped = executor._wrap_tool_with_budget(fetch)
+    assert await wrapped(1) == 1
+    with pytest.raises(executor.PolicyExceeded, match="max_tool_calls"):
+        await wrapped(2)

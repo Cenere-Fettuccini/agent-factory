@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
-from composer.schemas.graph import Graph
+from composer.schemas.graph import Graph, GraphNode, ToolDef
 
 
 class ExportRequest(BaseModel):
@@ -15,3 +15,12 @@ class ExportRequest(BaseModel):
     graph: Graph
     destination: str
     overwrite: bool = False
+
+
+class PreviewRequest(BaseModel):
+    """Preview one node, with any UI-authored tools it may grant."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    node: GraphNode
+    tool_defs: list[ToolDef] = Field(default_factory=list)

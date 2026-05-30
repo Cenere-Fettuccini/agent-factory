@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from composer.resolver import infer_model_id, resolve
+from composer.resolver import infer_model_for_layer, infer_model_id, resolve
 from composer.schemas.graph import Graph
 
 
@@ -58,6 +58,41 @@ def test_resolve_propagates_caller_allowlist() -> None:
     # The caller itself gets no inbound edges, so no allowlist is forced.
     a = next(n for n in g.nodes if n.id == "a")
     assert a.tools is None
+
+
+def test_layer_biases_model() -> None:
+    assert infer_model_for_layer("Tools") == "anthropic:claude-haiku-4-5"
+    assert infer_model_for_layer("Orchestrator") == "anthropic:claude-opus-4-7"
+    assert infer_model_for_layer("Refinement") == "anthropic:claude-opus-4-7"
+    assert infer_model_for_layer("whatever") is None
+    assert infer_model_for_layer(None) is None
+
+
+def test_resolve_uses_layer_for_unset_model() -> None:
+    # A tool-tier node with a neutral description still resolves to the fast tier.
+    g = resolve(
+        Graph.model_validate(
+            {
+                "layers": ["tools"],
+                "nodes": [{"id": "t", "layer": "tools", "description": "do a thing"}],
+            }
+        )
+    )
+    assert g.nodes[0].model == {"model_id": "anthropic:claude-haiku-4-5"}
+
+
+def test_explicit_model_still_wins_over_layer() -> None:
+    g = resolve(
+        Graph.model_validate(
+            {
+                "layers": ["tools"],
+                "nodes": [
+                    {"id": "t", "layer": "tools", "model": {"model_id": "test:echo"}}
+                ],
+            }
+        )
+    )
+    assert g.nodes[0].model == {"model_id": "test:echo"}
 
 
 def test_resolve_does_not_mutate_input() -> None:
