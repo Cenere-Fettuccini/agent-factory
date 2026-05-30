@@ -186,6 +186,20 @@ trap 'kill "$api_pid"' EXIT
 Backend: `http://localhost:8000`
 Frontend: `http://localhost:5173`
 
+### Design with AI (in-browser)
+
+The canvas has a **Design with AI** panel that turns a sentence into a starter
+agent network. It runs a small language model **entirely in your browser** via
+WebLLM — no server, no API key. The model drafts tiers, agents, and call edges;
+the usual Resolve/Validate pipeline then fills and checks the rest.
+
+No extra startup step — it ships with the frontend. Two things to know:
+
+- Needs a **WebGPU** browser (desktop Chrome or Edge; the panel says so and
+  disables itself otherwise).
+- First use downloads the model from HuggingFace once (~1&nbsp;GB, shown with a
+  progress bar), then caches it in the browser for instant, offline reuse.
+
 ## Out of scope (so far)
 
 - Importing existing Langfuse-traced runs back into the contract.
