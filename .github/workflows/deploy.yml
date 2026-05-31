@@ -1,0 +1,55 @@
+name: Deploy studio-web
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Only one deploy runs at a time; a queued run waits rather than cancelling,
+# so a push mid-deploy doesn't leave Pages in a half-updated state.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: studio-web/package-lock.json
+
+      - run: npm ci
+        working-directory: studio-web
+
+      - name: Build
+        run: npm run build
+        working-directory: studio-web
+        env:
+          # GitHub Pages serves from /repo-name/ by default. Set a repo variable
+          # VITE_BASE_PATH to override (e.g. "/" if you use a custom domain).
+          VITE_BASE_PATH: ${{ vars.VITE_BASE_PATH || format('/{0}/', github.event.repository.name) }}
+          # Point the studio at your deployed composer API. Set this as a repo
+          # variable (Settings → Variables) if you have a live backend.
+          VITE_API_BASE: ${{ vars.VITE_API_BASE || '' }}
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: studio-web/dist
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
