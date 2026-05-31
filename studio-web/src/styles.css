@@ -180,6 +180,18 @@ textarea { resize: vertical; min-height: 48px; font-family: inherit; }
 }
 .ctx-item:hover { background: var(--panel-2); }
 .ctx-item.accent { color: var(--era3); font-weight: 600; }
+.ctx-item.danger { color: var(--danger); }
+.ctx-item.danger:hover { background: rgba(255,107,107,0.12); }
+
+/* Edge editor popover (per-call cap + delete) */
+.edge-editor { min-width: 196px; padding: 8px; }
+.edge-editor-head {
+  font-size: 12px; color: var(--muted); padding: 2px 4px 6px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.edge-editor-head strong { color: var(--ink); font-weight: 600; }
+.edge-editor label.field { margin: 0 0 6px; padding: 0 4px; }
+.edge-editor input[type="number"] { width: 100%; }
 
 /* Design-with-AI popover (floats top-center, clear of the view controls) */
 .designer-panel {
@@ -206,3 +218,17 @@ textarea { resize: vertical; min-height: 48px; font-family: inherit; }
   overflow: hidden; border: 1px solid var(--border);
 }
 .designer-bar-fill { height: 100%; background: var(--era3); transition: width 0.2s; }
+
+/* Staged-generation checklist */
+.designer-stages { list-style: none; margin: 10px 0 0; padding: 0; }
+.designer-stages .stage {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 0; font-size: 12px; color: var(--muted);
+}
+.stage-icon { width: 14px; text-align: center; flex: 0 0 auto; }
+.stage.done .stage-icon { color: var(--era2); }
+.stage.failed .stage-icon { color: var(--danger); }
+.stage.running .stage-icon { color: var(--era3); }
+.stage-label { color: var(--ink); }
+.stage-detail { color: var(--muted); font-size: 11px; }
+.stage-retry { margin-left: auto; padding: 1px 8px; font-size: 11px; }

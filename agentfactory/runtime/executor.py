@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import contextvars
 import functools
 import inspect
@@ -40,13 +41,18 @@ _COMPILED: dict[tuple[str, str], PydanticAIAgent[Any, BaseModel]] = {}
 
 
 class _ToolCallBudget:
-    """Per-run counter for tool invocations (pydantic_ai dropped its own cap)."""
+    """Per-run counter for tool invocations (pydantic_ai dropped its own cap).
 
-    __slots__ = ("limit", "count")
+    Tracks both the global call count (against ``max_tool_calls``) and a
+    per-tool count (against each tool's optional ``tool_call_caps`` entry).
+    """
+
+    __slots__ = ("limit", "count", "per_tool_counts")
 
     def __init__(self, limit: int | None) -> None:
         self.limit = limit
         self.count = 0
+        self.per_tool_counts: dict[str, int] = {}
 
 
 # Set fresh by run() for each execution; wrapped tools charge against it.
@@ -55,22 +61,34 @@ _tool_call_budget: contextvars.ContextVar[_ToolCallBudget | None] = contextvars.
 )
 
 
-def _wrap_tool_with_budget(func: Callable[..., Any]) -> Callable[..., Any]:
+def _wrap_tool_with_budget(
+    func: Callable[..., Any],
+    tool_id: str | None = None,
+    cap: int | None = None,
+) -> Callable[..., Any]:
     """Wrap a tool callable so each call is charged against the per-run
     max_tool_calls budget, raising PolicyExceeded once the cap is exceeded.
 
     pydantic_ai removed its built-in per-tool-call limit, so we enforce it here.
-    The signature/annotations of the original are preserved so pydantic_ai still
+    When ``cap`` is given, the per-tool count for ``tool_id`` is also bounded
+    (an A->B edge is a subagent tool call, so this caps that edge). The
+    signature/annotations of the original are preserved so pydantic_ai still
     builds the correct tool schema.
     """
 
     def _charge() -> None:
         budget = _tool_call_budget.get()
-        if budget is None or budget.limit is None:
+        if budget is None:
             return
-        budget.count += 1
-        if budget.count > budget.limit:
-            raise PolicyExceeded(f"max_tool_calls ({budget.limit}) exceeded")
+        if budget.limit is not None:
+            budget.count += 1
+            if budget.count > budget.limit:
+                raise PolicyExceeded(f"max_tool_calls ({budget.limit}) exceeded")
+        if cap is not None and tool_id is not None:
+            used = budget.per_tool_counts.get(tool_id, 0) + 1
+            budget.per_tool_counts[tool_id] = used
+            if used > cap:
+                raise PolicyExceeded(f"tool {tool_id!r} call cap ({cap}) exceeded")
 
     if inspect.iscoroutinefunction(func):
 
@@ -89,6 +107,41 @@ def _wrap_tool_with_budget(func: Callable[..., Any]) -> Callable[..., Any]:
 
     wrapper.__signature__ = inspect.signature(func)  # type: ignore[attr-defined]
     return wrapper
+
+
+# Per-run recursion bookkeeping. A subagent call is a tool call that re-enters
+# run() one level deeper, so nesting is tracked here. The *entrypoint* agent's
+# max_recursion_depth governs the whole call tree: the resolver sets it to the
+# longest subagent chain reachable from that agent, so a well-formed acyclic
+# network runs freely and a cycle trips the cap instead of recursing forever.
+_recursion_depth: contextvars.ContextVar[int] = contextvars.ContextVar(
+    "af_recursion_depth", default=0
+)
+_recursion_limit: contextvars.ContextVar[int | None] = contextvars.ContextVar(
+    "af_recursion_limit", default=None
+)
+
+
+@contextlib.contextmanager
+def _recursion_guard(agent: Agent) -> Any:
+    """Enforce max_recursion_depth across nested subagent runs."""
+    depth = _recursion_depth.get()
+    # The top of the call tree fixes the limit for everything below it.
+    limit_token = (
+        _recursion_limit.set(agent.policy.max_recursion_depth) if depth == 0 else None
+    )
+    limit = _recursion_limit.get()
+    try:
+        if limit is not None and depth > limit:
+            raise PolicyExceeded(f"max_recursion_depth ({limit}) exceeded")
+        depth_token = _recursion_depth.set(depth + 1)
+        try:
+            yield
+        finally:
+            _recursion_depth.reset(depth_token)
+    finally:
+        if limit_token is not None:
+            _recursion_limit.reset(limit_token)
 
 
 def _classify(exc: BaseException) -> str:
@@ -130,7 +183,8 @@ def compile(agent: Agent) -> PydanticAIAgent[Any, BaseModel]:
 
     for tool_id in agent.tools.tool_grants:
         tool_spec = TOOLS.get(tool_id)
-        pai_agent.tool_plain(_wrap_tool_with_budget(tool_spec.callable))
+        cap = agent.tools.tool_call_caps.get(tool_id)
+        pai_agent.tool_plain(_wrap_tool_with_budget(tool_spec.callable, tool_id, cap))
 
     _COMPILED[key] = pai_agent
     return pai_agent
@@ -158,7 +212,7 @@ async def run(
     """Run the agent end to end, under policy and telemetry."""
     tracer = otel.init_tracer(agent)
 
-    with tracer.start_as_current_span("agent.run") as span:
+    with _recursion_guard(agent), tracer.start_as_current_span("agent.run") as span:
         span.set_attribute(otel.SPAN_KIND, otel.KIND_AGENT)
         span.set_attribute(otel.LLM_MODEL_NAME, agent.model.model_id)
         span.set_attribute(otel.AF_POLICY_MAX_STEPS, agent.policy.max_steps)
@@ -226,10 +280,10 @@ async def run(
         span.set_attribute(otel.OUTPUT_VALUE, json.dumps(output_data, default=str))
 
         usage = result.usage()
-        if usage.input_tokens is not None:
-            span.set_attribute(otel.LLM_TOKEN_COUNT_PROMPT, usage.input_tokens)
-        if usage.output_tokens is not None:
-            span.set_attribute(otel.LLM_TOKEN_COUNT_COMPLETION, usage.output_tokens)
+        if usage.request_tokens is not None:
+            span.set_attribute(otel.LLM_TOKEN_COUNT_PROMPT, usage.request_tokens)
+        if usage.response_tokens is not None:
+            span.set_attribute(otel.LLM_TOKEN_COUNT_COMPLETION, usage.response_tokens)
         if usage.total_tokens is not None:
             span.set_attribute(otel.LLM_TOKEN_COUNT_TOTAL, usage.total_tokens)
 

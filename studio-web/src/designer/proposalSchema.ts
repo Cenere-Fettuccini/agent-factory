@@ -228,6 +228,65 @@ existing agent does NOT delete it; list its id under "remove" to drop it. Do not
 invent tools or model names. Prefer improving existing nodes and edges over
 adding parallel duplicates.`;
 
+// ---- staged generation -------------------------------------------------------
+//
+// Instead of asking a tiny model for the whole graph in one shot, we walk three
+// narrower generations — tiers, then agents, then edges — each constrained to a
+// small sub-schema and fed the canvas built so far. Smaller targets are exactly
+// what a 1-3B model is most reliable at, and the canvas updates after each stage
+// so the user watches the network assemble (and can retry a single weak stage).
+
+export type StageId = "tiers" | "agents" | "edges";
+export const DESIGN_STAGES: StageId[] = ["tiers", "agents", "edges"];
+
+// Each stage reuses the matching slice of the full proposal schema, so the
+// grammar stays identical to the single-shot path — just one key at a time.
+export const STAGE_SCHEMAS: Record<StageId, Record<string, unknown>> = {
+  tiers: {
+    type: "object",
+    properties: { layers: PROPOSAL_JSON_SCHEMA.properties.layers },
+    required: ["layers"],
+  },
+  agents: {
+    type: "object",
+    properties: { agents: PROPOSAL_JSON_SCHEMA.properties.agents },
+    required: ["agents"],
+  },
+  edges: {
+    type: "object",
+    properties: { edges: PROPOSAL_JSON_SCHEMA.properties.edges },
+    required: ["edges"],
+  },
+};
+
+export const STAGE_PROMPTS: Record<StageId, string> = {
+  tiers: `You are a pipeline architect. Decide ONLY the EXECUTION-ROLE TIERS for a
+multi-agent network and return them as JSON {"layers": [...]}, ordered top to
+bottom. A tier names what its agents DO — e.g. user intake, brief refinement,
+planning, orchestration/delegation, tool collection, synthesis, review,
+publishing — NOT a product/module name. Reuse any existing tier names shown
+above verbatim; only add a tier when a role separation is genuinely missing.
+Aim for 4-7 tiers. Output only the JSON object.`,
+
+  agents: `You are a pipeline architect. The tiers already exist (shown above).
+Return ONLY the AGENTS as JSON {"agents": [...]}. Each agent has: "id"
+(lowercase-hyphen, e.g. "scope-narrower"), a SPECIFIC "name" (never generic like
+"Agent 1", "Worker", "Handler"), a one-line "description", a "module" (functional
+folder, lowercase snake/hyphen), a "layer" (one of the EXISTING tier names
+above), and optionally "trigger": "user_query" (a top-tier entry point the user
+starts), "auto_action", or "none". In most tiers include a COORDINATOR that will
+delegate to 2-3 specialists. Reuse an EXISTING agent id to refine it; use a NEW
+id to add one. Aim for 8-14 agents total across the tiers. Output only the JSON.`,
+
+  edges: `You are a pipeline architect. The tiers and agents already exist (shown
+above). Return ONLY the directed CALL EDGES as JSON {"edges": [...]}, each
+{"source","target"} meaning source calls target. An edge may go DOWN to the tier
+directly below OR sideways to a peer in the SAME tier (a coordinator calling its
+specialists). NEVER skip a tier and never point upward. Reference agents by their
+exact ids shown above. Connect every agent with at least one edge. Output only
+the JSON.`,
+};
+
 const PROMPT_REFINER_RULES = [
   {
     pattern: /\b(user|human).*\b(question|ask|query|interview|clarif|direction|preference)/i,
@@ -452,6 +511,67 @@ export function normalizeProposal(
         }
       : proposal.remove,
   };
+}
+
+// --- per-stage cleanup --------------------------------------------------------
+// Lighter than normalizeProposal: each stage only tidies its own slice, since
+// the next stage (and the backend Resolve/Validate) handle the rest. Crucially,
+// the agents stage does NOT auto-wire orphan edges — that's the edges stage's
+// job — so the two never fight over the same connections.
+
+/** Trim, drop blanks, and de-dupe (case/space-insensitive) proposed tier names. */
+export function normalizeTiers(raw: string[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const r of raw) {
+    const name = (r ?? "").trim();
+    if (!name) continue;
+    const key = normalizeLayer(name);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(name);
+  }
+  return out;
+}
+
+/** Clean proposed agents: strip "-refined" clones, infer modules, reuse ids. */
+export function normalizeStagedAgents(
+  agents: ProposalAgent[],
+  current: CurrentDesign
+): ProposalAgent[] {
+  const existingIds = new Set(current.agents.map((a) => a.id));
+  return agents.map((agent) => {
+    const baseId = stripRefinedSuffix(agent.id);
+    const id = existingIds.has(baseId) ? baseId : agent.id;
+    return {
+      ...agent,
+      id,
+      name: agent.name ? stripRefinedSuffix(agent.name) : agent.name,
+      module: normalizeAgentModule(agent),
+    };
+  });
+}
+
+/** Keep only edges that connect known agents same-tier or one tier down. */
+export function keepValidEdges(
+  edges: ProposalEdge[],
+  current: CurrentDesign
+): ProposalEdge[] {
+  const layerRank = new Map(current.layers.map((l, i) => [normalizeLayer(l), i]));
+  const tierOf = new Map(current.agents.map((a) => [a.id, normalizeLayer(a.layer)]));
+  const seen = new Set(current.edges.map((e) => `${e.source}->${e.target}`));
+  const out: ProposalEdge[] = [];
+  for (const e of edges) {
+    const key = `${e.source}->${e.target}`;
+    if (e.source === e.target || seen.has(key)) continue;
+    const si = layerRank.get(tierOf.get(e.source) ?? "");
+    const ti = layerRank.get(tierOf.get(e.target) ?? "");
+    if (si === undefined || ti === undefined) continue;
+    if (!(ti === si || ti === si + 1)) continue;
+    seen.add(key);
+    out.push({ source: e.source, target: e.target });
+  }
+  return out;
 }
 
 /** Snapshot of what's already on the canvas, handed to the model as context. */

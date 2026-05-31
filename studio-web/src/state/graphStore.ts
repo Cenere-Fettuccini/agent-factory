@@ -27,6 +27,19 @@ export interface NodePosition {
 }
 
 export const DEFAULT_LAYERS = ["Refinement", "Orchestrator", "Tools"];
+
+// Default per-call repetition cap for an agent->agent (subagent) edge. The cap is
+// a SOURCE property (the same target called by two agents can be capped
+// differently), so it lives on the caller's tools config keyed by the callee's
+// subagent tool id. An unset entry means "use this default" — the field shows it
+// as a placeholder rather than writing it, so the default can change centrally.
+export const DEFAULT_CALL_CAP = 3;
+
+/** Catalog tool id used when one agent calls another. Mirrors the backend's
+ *  composer.resolver.subagent_tool_id so edge caps key the same grant. */
+export function subagentToolId(agentId: string): string {
+  return `agentfactory.subagent.${agentId}`;
+}
 // Tall enough for a ComfyUI-style node with its widgets always visible.
 export const LANE_HEIGHT = 400;
 export const LANE_WIDTH = 2000;
@@ -68,6 +81,7 @@ interface GraphState {
   redoStack: GraphSnapshot[];
 
   selectedNodeId: string | null;
+  selectedEdgeId: string | null;
   autoResolve: boolean;
   designerOpen: boolean;
   issues: ValidationIssue[];
@@ -105,6 +119,11 @@ interface GraphState {
   setToolDefs: (defs: ToolDef[]) => void;
 
   select: (id: string | null) => void;
+  selectEdge: (id: string | null) => void;
+  clearSelection: () => void;
+  /** Set (or clear, with null) the per-call cap a source agent has on calling a
+   *  target agent. Stored on the source node's tools under tool_call_caps. */
+  setCallCap: (sourceId: string, targetId: string, cap: number | null) => void;
   toggleAutoResolve: () => void;
   setDesignerOpen: (open: boolean) => void;
   setIssues: (issues: ValidationIssue[]) => void;
@@ -209,6 +228,7 @@ function restoreSnapshot(
   return {
     ...structuredClone(snapshot),
     ...stacks,
+    selectedEdgeId: null,
     preview: null,
     dryRun: null,
     structuralRev: hasStructuralDiff(current, snapshot) ? s.structuralRev + 1 : s.structuralRev,
@@ -226,6 +246,7 @@ export const useGraph = create<GraphState>((set, get) => ({
   redoStack: [],
 
   selectedNodeId: null,
+  selectedEdgeId: null,
   autoResolve: true,
   designerOpen: false,
   issues: [],
@@ -365,7 +386,32 @@ export const useGraph = create<GraphState>((set, get) => ({
       graphRev: s.graphRev + 1,
     })),
 
-  select: (id) => set({ selectedNodeId: id }),
+  // Node and edge selection are mutually exclusive — selecting one releases the
+  // other, so the Delete key always has a single unambiguous target.
+  select: (id) => set({ selectedNodeId: id, selectedEdgeId: null }),
+  selectEdge: (id) => set({ selectedEdgeId: id, selectedNodeId: null }),
+  clearSelection: () => set({ selectedNodeId: null, selectedEdgeId: null }),
+
+  setCallCap: (sourceId, targetId, cap) =>
+    set((s) => {
+      const node = s.nodes.find((n) => n.id === sourceId);
+      if (!node) return {};
+      const toolId = subagentToolId(targetId);
+      const tools = (node.tools as Record<string, unknown> | null) ?? {};
+      const caps = { ...((tools.tool_call_caps as Record<string, number>) ?? {}) };
+      if (cap == null) delete caps[toolId];
+      else caps[toolId] = cap;
+      const nextTools: Record<string, unknown> = { ...tools, tool_call_caps: caps };
+      // Drop the map entirely once empty so an untouched edge leaves no trace.
+      if (Object.keys(caps).length === 0) delete nextTools.tool_call_caps;
+      // A cap is a runtime budget, not structural wiring, so only graphRev bumps
+      // (revalidate) — no need to re-resolve.
+      return withHistory(s, {
+        nodes: s.nodes.map((n) => (n.id === sourceId ? { ...n, tools: nextTools } : n)),
+        graphRev: s.graphRev + 1,
+      });
+    }),
+
   toggleAutoResolve: () => set((s) => ({ autoResolve: !s.autoResolve })),
   setDesignerOpen: (open) => set({ designerOpen: open }),
   setIssues: (issues) => set({ issues }),
@@ -565,6 +611,7 @@ export const useGraph = create<GraphState>((set, get) => ({
         edges,
         positions,
         selectedNodeId: null,
+        selectedEdgeId: null,
         preview: null,
         dryRun: null,
         structuralRev: s.structuralRev + 1,

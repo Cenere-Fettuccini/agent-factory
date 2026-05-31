@@ -119,6 +119,74 @@ def test_explicit_model_still_wins_over_layer() -> None:
     assert g.nodes[0].model == {"model_id": "test:echo"}
 
 
+def test_resolve_infers_recursion_depth_from_chain() -> None:
+    # a -> b -> c: a's longest subagent chain is 2, b's is 1, c's is 0 (-> min 1).
+    g = resolve(
+        Graph.model_validate(
+            {
+                "nodes": [{"id": "a"}, {"id": "b"}, {"id": "c"}],
+                "edges": [
+                    {"source": "a", "target": "b"},
+                    {"source": "b", "target": "c"},
+                ],
+            }
+        )
+    )
+    by_id = {n.id: n for n in g.nodes}
+    assert by_id["a"].policy["max_recursion_depth"] == 2
+    assert by_id["b"].policy["max_recursion_depth"] == 1
+    assert by_id["c"].policy["max_recursion_depth"] == 1
+    # a and b each call one subagent -> budget = one default cap; c has none.
+    assert by_id["a"].policy["max_tool_calls"] == 3
+    assert "max_tool_calls" not in by_id["c"].policy
+
+
+def test_resolve_sizes_tool_budget_from_caps() -> None:
+    # An explicit per-call cap on the a->b edge drives a's global tool budget.
+    g = resolve(
+        Graph.model_validate(
+            {
+                "nodes": [
+                    {
+                        "id": "a",
+                        "tools": {"tool_call_caps": {"agentfactory.subagent.b": 5}},
+                    },
+                    {"id": "b"},
+                ],
+                "edges": [{"source": "a", "target": "b"}],
+            }
+        )
+    )
+    a = next(n for n in g.nodes if n.id == "a")
+    assert a.policy["max_tool_calls"] == 5
+    assert a.policy["max_steps"] == 8  # max(8, 5 + 1)
+
+
+def test_resolve_recursion_depth_survives_cycle() -> None:
+    # A cycle has no finite longest chain, so depth falls back to the default.
+    g = resolve(
+        Graph.model_validate(
+            {
+                "nodes": [{"id": "a"}, {"id": "b"}],
+                "edges": [
+                    {"source": "a", "target": "b"},
+                    {"source": "b", "target": "a"},
+                ],
+            }
+        )
+    )
+    assert g.nodes[0].policy["max_recursion_depth"] == 2
+
+
+def test_resolve_preserves_explicit_policy() -> None:
+    g = resolve(
+        Graph.model_validate(
+            {"nodes": [{"id": "a", "policy": {"max_recursion_depth": 7}}]}
+        )
+    )
+    assert g.nodes[0].policy == {"max_recursion_depth": 7}
+
+
 def test_resolve_does_not_mutate_input() -> None:
     original = Graph.model_validate({"nodes": [{"id": "a", "description": "x"}]})
     resolve(original)

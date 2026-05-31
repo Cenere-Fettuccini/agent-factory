@@ -30,9 +30,55 @@ _HAIKU_WORDS = frozenset(
 )
 
 
+# Default per-tool call cap used to size the global tool-call budget when an edge
+# carries no explicit cap. Mirrors DEFAULT_CALL_CAP in the studio-web store.
+DEFAULT_CALL_CAP = 3
+# Fallback recursion depth when the subagent graph reachable from a node contains
+# a cycle (no finite longest chain). Mirrors graph_validation.DEFAULT_MAX_RECURSION.
+DEFAULT_MAX_RECURSION = 2
+
+
 def subagent_tool_id(agent_id: str) -> str:
     """Catalog id used when one agent calls another exported agent."""
     return f"agentfactory.subagent.{agent_id}"
+
+
+class _CycleError(Exception):
+    """Internal: the subagent graph has a cycle, so depth isn't a finite chain."""
+
+
+def _subagent_adjacency(graph: Graph) -> dict[str, list[str]]:
+    """Adjacency over agent->agent (subagent) edges only; tool edges are excluded."""
+    kinds = {n.id: n.kind for n in graph.nodes}
+    adj: dict[str, list[str]] = {}
+    for edge in graph.edges:
+        if kinds.get(edge.source) == "agent" and kinds.get(edge.target) == "agent":
+            adj.setdefault(edge.source, []).append(edge.target)
+    return adj
+
+
+def _longest_chain(start: str, adj: dict[str, list[str]]) -> int:
+    """Longest number of subagent edges on any path from ``start``.
+
+    Raises _CycleError if a cycle is reachable (no finite longest path).
+    """
+    memo: dict[str, int] = {}
+    on_stack: set[str] = set()
+
+    def dfs(node: str) -> int:
+        if node in on_stack:
+            raise _CycleError
+        if node in memo:
+            return memo[node]
+        on_stack.add(node)
+        best = 0
+        for nxt in adj.get(node, []):
+            best = max(best, 1 + dfs(nxt))
+        on_stack.discard(node)
+        memo[node] = best
+        return best
+
+    return dfs(start)
 
 
 def infer_model_id(description: str) -> str:
@@ -147,6 +193,36 @@ def resolve(graph: Graph) -> Graph:
             changed = True
         if changed:
             node.tools = tools
+
+    # 3. Infer per-node policy budgets from topology (only when the author left
+    # policy unset). These are derivable from the graph, so the UI never has to
+    # ask for them:
+    #   max_recursion_depth — longest subagent chain reachable from the node
+    #                         (a cycle falls back to a safe default).
+    #   max_tool_calls      — sum of each grant's cap (explicit, or the default),
+    #                         so the global budget matches the per-tool caps.
+    #   max_steps           — enough model turns to actually spend that budget.
+    adj = _subagent_adjacency(resolved)
+    for node in resolved.nodes:
+        if node.kind == "tool" or node.policy is not None:
+            continue
+        tools = node.tools or {}
+        grants = list(tools.get("tool_grants", []))
+        caps = dict(tools.get("tool_call_caps", {}))
+
+        try:
+            chain = _longest_chain(node.id, adj)
+        except _CycleError:
+            chain = DEFAULT_MAX_RECURSION
+        policy: dict[str, object] = {"max_recursion_depth": max(1, chain)}
+
+        if grants:
+            max_tool_calls = sum(caps.get(t, DEFAULT_CALL_CAP) for t in grants)
+            policy["max_tool_calls"] = max_tool_calls
+            # The model needs a turn to read each tool result, plus one to answer.
+            policy["max_steps"] = max(8, max_tool_calls + 1)
+
+        node.policy = policy
 
     return resolved
 

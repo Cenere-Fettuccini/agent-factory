@@ -5,7 +5,60 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useDesigner } from "../designer/useDesigner";
+import { DESIGN_STAGES, type CurrentDesign, type StageId } from "../designer/proposalSchema";
 import { useGraph } from "../state/graphStore";
+
+type StagePhase = "pending" | "running" | "done" | "failed";
+interface StageRun {
+  id: StageId;
+  label: string;
+  phase: StagePhase;
+  detail: string;
+}
+
+const STAGE_LABELS: Record<StageId, string> = {
+  tiers: "Tiers",
+  agents: "Agents",
+  edges: "Connections",
+};
+
+const PHASE_ICON: Record<StagePhase, string> = {
+  pending: "○",
+  running: "…",
+  done: "✓",
+  failed: "✕",
+};
+
+/** One-line "what changed" for a finished stage, from before/after counts. */
+function summarize(stage: StageId, before: CurrentDesign, after: CurrentDesign): string {
+  const plural = (n: number, w: string) => `+${n} ${w}${n === 1 ? "" : "s"}`;
+  if (stage === "tiers") {
+    const n = after.layers.length - before.layers.length;
+    return n > 0 ? plural(n, "tier") : "reused existing tiers";
+  }
+  if (stage === "agents") {
+    const n = after.agents.length - before.agents.length;
+    return n > 0 ? plural(n, "agent") : "updated existing agents";
+  }
+  const n = after.edges.length - before.edges.length;
+  return n > 0 ? plural(n, "connection") : "no new connections";
+}
+
+/** Read the canvas into the shape the model is shown as context. */
+function snapshotCurrent(): CurrentDesign {
+  const s = useGraph.getState();
+  return {
+    layers: s.layers,
+    agents: s.nodes.map((n) => ({
+      id: n.id,
+      description: n.description,
+      module: n.module,
+      layer: n.layer,
+      trigger: n.trigger,
+    })),
+    edges: s.edges,
+  };
+}
 
 // Platform-aware label so macOS sees ⌘ and everyone else sees Ctrl.
 const SHORTCUT_LABEL =
@@ -25,6 +78,8 @@ export function DesignerPanel() {
   const setOpen = useGraph((s) => s.setDesignerOpen);
   const [prompt, setPrompt] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
+  const [stages, setStages] = useState<StageRun[] | null>(null);
+  const [running, setRunning] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   // Latest designer kept in a ref so the always-on key handler can read its
   // current status / call load() without re-subscribing the listener each render.
@@ -59,30 +114,67 @@ export function DesignerPanel() {
 
   const { status, progress, progressText, error } = designer;
 
-  async function onDesign() {
+  // Walk the stages from `startIndex`, applying each delta to the canvas as it
+  // lands so the network assembles live. A stage that errors or returns nothing
+  // halts the run and leaves a Retry button on that row — earlier stages stay.
+  async function runStages(startIndex: number) {
     const text = prompt.trim();
-    if (!text) return;
+    if (!text || running) return;
     setNotice(null);
-    const s = useGraph.getState();
-    const proposal = await designer.propose(text, {
-      layers: s.layers,
-      agents: s.nodes.map((n) => ({
-        id: n.id,
-        description: n.description,
-        module: n.module,
-        layer: n.layer,
-        trigger: n.trigger,
-      })),
-      edges: s.edges,
-    });
-    // proposal === null means a parse/transport error (already shown via `error`).
-    // A non-null proposal that changes nothing means the model returned an empty
-    // design — say so rather than leaving the canvas looking broken.
-    if (proposal && !loadProposal(proposal)) {
-      setNotice(
-        "The model returned an empty design. Try rephrasing your prompt or adding more detail."
+    setRunning(true);
+
+    setStages((prev) => {
+      const base =
+        prev ??
+        DESIGN_STAGES.map((id) => ({
+          id,
+          label: STAGE_LABELS[id],
+          phase: "pending" as StagePhase,
+          detail: "",
+        }));
+      // Reset this stage and everything after it; keep completed earlier stages.
+      return base.map((s, i) =>
+        i >= startIndex ? { ...s, phase: "pending" as StagePhase, detail: "" } : s
       );
+    });
+    const patch = (i: number, change: Partial<StageRun>) =>
+      setStages((prev) => prev?.map((s, j) => (j === i ? { ...s, ...change } : s)) ?? prev);
+
+    for (let i = startIndex; i < DESIGN_STAGES.length; i += 1) {
+      const stage = DESIGN_STAGES[i];
+      patch(i, { phase: "running", detail: "" });
+
+      const before = snapshotCurrent();
+      const partial = await designer.proposeStage(stage, text, before);
+      if (!partial) {
+        patch(i, { phase: "failed", detail: "model error — see below" });
+        setRunning(false);
+        return;
+      }
+
+      const counts = {
+        tiers: partial.layers?.length ?? 0,
+        agents: partial.agents?.length ?? 0,
+        edges: partial.edges?.length ?? 0,
+      };
+      loadProposal({
+        layers: partial.layers ?? [],
+        agents: partial.agents ?? [],
+        edges: partial.edges ?? [],
+      });
+
+      // Tiers and agents must produce something; an empty edges stage is allowed
+      // (a flat set of agents is still a valid, if unwired, starting point).
+      if ((stage === "tiers" || stage === "agents") && counts[stage] === 0) {
+        patch(i, { phase: "failed", detail: "returned nothing — retry or rephrase" });
+        setRunning(false);
+        return;
+      }
+
+      const after = snapshotCurrent();
+      patch(i, { phase: "done", detail: summarize(stage, before, after) });
     }
+    setRunning(false);
   }
 
   if (!open) return null;
@@ -150,18 +242,32 @@ export function DesignerPanel() {
             onChange={(e) => setPrompt(e.target.value)}
             placeholder={EXAMPLE}
             rows={3}
-            disabled={status === "thinking"}
+            disabled={running}
           />
-          <button
-            className="primary"
-            onClick={onDesign}
-            disabled={status === "thinking" || !prompt.trim()}
-          >
-            {status === "thinking" ? "Designing…" : "Design network"}
+          <button className="primary" onClick={() => runStages(0)} disabled={running || !prompt.trim()}>
+            {running ? "Designing…" : stages ? "Design again" : "Design network"}
           </button>
+
+          {stages && (
+            <ol className="designer-stages">
+              {stages.map((s, i) => (
+                <li key={s.id} className={`stage ${s.phase}`}>
+                  <span className="stage-icon">{PHASE_ICON[s.phase]}</span>
+                  <span className="stage-label">{s.label}</span>
+                  {s.detail && <span className="stage-detail">{s.detail}</span>}
+                  {s.phase === "failed" && !running && (
+                    <button className="ghost stage-retry" onClick={() => runStages(i)}>
+                      Retry
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ol>
+          )}
+
           <p className="designer-sub">
-            Drafts tiers, agents, and call edges onto the canvas. Resolve and
-            validation fill and check the rest.
+            Builds tiers, then agents, then call edges — each appears on the canvas
+            as it&apos;s generated. Resolve and validation fill and check the rest.
           </p>
         </>
       )}

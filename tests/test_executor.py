@@ -174,6 +174,31 @@ def test_wrapped_tool_preserves_signature() -> None:
     assert wrapped.__name__ == "tool"
 
 
+def test_per_tool_cap_enforced_independent_of_global_limit() -> None:
+    """A per-tool cap bites even when the global max_tool_calls is unlimited."""
+    executor._tool_call_budget.set(executor._ToolCallBudget(None))
+
+    def echo(x: int) -> int:
+        return x
+
+    wrapped = executor._wrap_tool_with_budget(echo, "subagent.b", cap=2)
+    assert wrapped(1) == 1
+    assert wrapped(2) == 2
+    with pytest.raises(executor.PolicyExceeded, match="call cap"):
+        wrapped(3)
+
+
+def test_recursion_guard_enforces_depth() -> None:
+    """Nested runs past the entrypoint's max_recursion_depth raise PolicyExceeded."""
+    agent = _agent(policy=PolicyLayer(max_recursion_depth=1))
+    # depth 0 (entry) fixes the limit; depth 1 is the one allowed subagent level.
+    with executor._recursion_guard(agent):
+        with executor._recursion_guard(agent):
+            with pytest.raises(executor.PolicyExceeded, match="max_recursion_depth"):
+                with executor._recursion_guard(agent):
+                    pass
+
+
 async def test_async_tool_charged_against_budget() -> None:
     """Async tools are counted against the budget like sync ones."""
     executor._tool_call_budget.set(executor._ToolCallBudget(1))

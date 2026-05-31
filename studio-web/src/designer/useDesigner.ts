@@ -10,11 +10,17 @@ import type { InitProgressReport, MLCEngineInterface } from "@mlc-ai/web-llm";
 import {
   DESIGNER_SYSTEM_PROMPT,
   PROPOSAL_JSON_SCHEMA,
+  STAGE_PROMPTS,
+  STAGE_SCHEMAS,
   describeCurrent,
+  keepValidEdges,
+  normalizeStagedAgents,
+  normalizeTiers,
   refineDesignerPrompt,
   normalizeProposal,
   type CurrentDesign,
   type DesignProposal,
+  type StageId,
 } from "./proposalSchema";
 
 // Instruction-tuned, strong at constrained JSON for its size. 4-bit, ~1.9GB.
@@ -44,6 +50,12 @@ export interface DesignerState {
   error: string | null;
   load: () => Promise<void>;
   propose: (prompt: string, current: CurrentDesign) => Promise<DesignProposal | null>;
+  /** Generate one stage (tiers | agents | edges) as a delta to apply on its own. */
+  proposeStage: (
+    stage: StageId,
+    prompt: string,
+    current: CurrentDesign
+  ) => Promise<Partial<DesignProposal> | null>;
 }
 
 function webgpuAvailable(): boolean {
@@ -181,5 +193,58 @@ export function useDesigner(): DesignerState {
     []
   );
 
-  return { status, progress, progressText, error, load, propose };
+  const proposeStage = useCallback<DesignerState["proposeStage"]>(
+    async (stage, prompt, current) => {
+      const engine = engineRef.current;
+      if (!engine) {
+        setError("Model not loaded yet.");
+        return null;
+      }
+      setStatus("thinking");
+      setError(null);
+      try {
+        // Same deterministic refinement as the single-shot path, reused verbatim
+        // for every stage so the brief the model sees stays consistent.
+        const brief = refineDesignerPrompt(prompt);
+        const reply = await engine.chat.completions.create({
+          temperature: 0.4,
+          max_tokens: stage === "agents" ? 2048 : 1024,
+          response_format: {
+            type: "json_object",
+            schema: JSON.stringify(STAGE_SCHEMAS[stage]),
+          },
+          messages: [
+            { role: "system", content: STAGE_PROMPTS[stage] },
+            {
+              role: "user",
+              content: `${describeCurrent(current)}\n\nTask: ${brief}`,
+            },
+          ],
+        });
+        const text = reply.choices[0]?.message?.content ?? "";
+        console.debug(`[designer] ${stage} reply:`, text);
+        const parsed = JSON.parse(text) as Partial<DesignProposal>;
+        setStatus("ready");
+        // Return a delta carrying only this stage's slice, cleaned in isolation.
+        if (stage === "tiers") {
+          return { layers: normalizeTiers(parsed.layers ?? []), agents: [], edges: [] };
+        }
+        if (stage === "agents") {
+          return {
+            layers: [],
+            agents: normalizeStagedAgents(parsed.agents ?? [], current),
+            edges: [],
+          };
+        }
+        return { layers: [], agents: [], edges: keepValidEdges(parsed.edges ?? [], current) };
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+        setStatus("ready");
+        return null;
+      }
+    },
+    []
+  );
+
+  return { status, progress, progressText, error, load, propose, proposeStage };
 }

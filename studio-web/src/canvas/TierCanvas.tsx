@@ -13,7 +13,14 @@ import {
 } from "@xyflow/react";
 import { AgentNode } from "./AgentNode";
 import { LaneNode } from "./LaneNode";
-import { LANE_HEIGHT, LANE_WIDTH, tierColor, useGraph } from "../state/graphStore";
+import {
+  DEFAULT_CALL_CAP,
+  LANE_HEIGHT,
+  LANE_WIDTH,
+  subagentToolId,
+  tierColor,
+  useGraph,
+} from "../state/graphStore";
 
 const nodeTypes = { agent: AgentNode, lane: LaneNode };
 const AGENT_NODE_ESTIMATED_HEIGHT = 340;
@@ -76,6 +83,9 @@ function InnerCanvas() {
   const [rfNodes, setRfNodes, onNodesChange] = useNodesState<Node>([]);
   const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [menu, setMenu] = useState<CanvasMenu | null>(null);
+  // Screen position for the edge editor popover; the selected edge id itself
+  // lives in the store so the Delete-key handler can read it.
+  const [edgeMenu, setEdgeMenu] = useState<{ x: number; y: number } | null>(null);
   const didFit = useRef(false);
   const canvasRef = useRef<HTMLDivElement>(null);
 
@@ -141,17 +151,24 @@ function InnerCanvas() {
   useEffect(() => {
     setRfEdges(
       store.edges.map((e) => {
-        const onPath = path.edges.has(`${e.source}->${e.target}`);
+        const id = `${e.source}->${e.target}`;
+        const onPath = path.edges.has(id);
+        const isSelected = id === store.selectedEdgeId;
         return {
-          id: `${e.source}->${e.target}`,
+          id,
           source: e.source,
           target: e.target,
           animated: onPath,
-          style: onPath ? { stroke: "var(--era2)", strokeWidth: 2 } : { stroke: "var(--muted)" },
+          selected: isSelected,
+          style: isSelected
+            ? { stroke: "var(--ink)", strokeWidth: 2.5 }
+            : onPath
+              ? { stroke: "var(--era2)", strokeWidth: 2 }
+              : { stroke: "var(--muted)" },
         };
       })
     );
-  }, [store.edges, path, setRfEdges]);
+  }, [store.edges, path, store.selectedEdgeId, setRfEdges]);
 
   // Frame the tier stack on first paint, once the lanes exist. The tall stack is
   // height-bound, so all pre-established tiers land inside the viewport. After
@@ -243,9 +260,39 @@ function InnerCanvas() {
 
   const onCanvasKeyDown = useCallback((event: React.KeyboardEvent) => {
     const target = event.target as HTMLElement | null;
-    if (target?.closest("input, textarea, select, button, [contenteditable='true']")) return;
-    if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+    const inField = target?.closest(
+      "input, textarea, select, button, [contenteditable='true']"
+    );
 
+    // Esc releases any selection (and blurs a focused widget) from anywhere,
+    // including mid-edit inside a node — so it works even when a field has focus.
+    if (event.key === "Escape") {
+      if (inField && target instanceof HTMLElement) target.blur();
+      useGraph.getState().clearSelection();
+      setMenu(null);
+      setEdgeMenu(null);
+      return;
+    }
+
+    // Everything below is destructive or history, so never fire it while the
+    // user is typing in a node's widgets (Backspace must edit text, not delete).
+    if (inField) return;
+
+    if (event.key === "Delete" || event.key === "Backspace") {
+      event.preventDefault();
+      const s = useGraph.getState();
+      if (s.selectedNodeId) {
+        s.removeNode(s.selectedNodeId);
+      } else if (s.selectedEdgeId) {
+        const [source, target] = s.selectedEdgeId.split("->");
+        if (source && target) s.removeEdge(source, target);
+        s.selectEdge(null);
+        setEdgeMenu(null);
+      }
+      return;
+    }
+
+    if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
     const key = event.key.toLowerCase();
     if (key === "z" && event.shiftKey) {
       event.preventDefault();
@@ -272,18 +319,29 @@ function InnerCanvas() {
       onConnect={onConnect}
       isValidConnection={isValidConnection}
       onNodeDragStop={onNodeDragStop}
-      onNodeClick={(_e, node) => node.type === "agent" && store.select(node.id)}
+      onNodeClick={(_e, node) => {
+        if (node.type !== "agent") return;
+        store.select(node.id);
+        setEdgeMenu(null);
+      }}
       onPaneClick={() => {
-        store.select(null);
+        store.clearSelection();
         setMenu(null);
+        setEdgeMenu(null);
       }}
       onPaneContextMenu={onPaneContextMenu}
       // Lane (tier) bands are nodes too, so a right-click over them lands here,
       // not on the pane — route it to the same menu instead of the native one.
       onNodeContextMenu={onPaneContextMenu}
-      onEdgeClick={(_e, edge) => {
-        if (edge.source && edge.target) store.removeEdge(edge.source, edge.target);
+      // Click selects the edge and opens its editor; deletion is deliberate
+      // (Delete key or the popover's button), never a stray click.
+      onEdgeClick={(e, edge) => {
+        store.selectEdge(edge.id);
+        setEdgeMenu({ x: e.clientX, y: e.clientY });
       }}
+      // We own Delete/Backspace via onCanvasKeyDown (with an input-field guard),
+      // so disable React Flow's built-in delete to avoid double-handling.
+      deleteKeyCode={null}
       onDrop={onDrop}
       onDragOver={onDragOver}
       nodeTypes={nodeTypes}
@@ -334,6 +392,87 @@ function InnerCanvas() {
         </div>
       </>
     )}
+
+    {edgeMenu && store.selectedEdgeId && (
+      <>
+        <div
+          className="ctx-backdrop"
+          onClick={() => {
+            store.selectEdge(null);
+            setEdgeMenu(null);
+          }}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            store.selectEdge(null);
+            setEdgeMenu(null);
+          }}
+        />
+        <EdgeEditor
+          x={edgeMenu.x}
+          y={edgeMenu.y}
+          onClose={() => {
+            store.selectEdge(null);
+            setEdgeMenu(null);
+          }}
+        />
+      </>
+    )}
+    </div>
+  );
+}
+
+/** Popover for the selected edge: per-call cap (agent->agent only) and delete. */
+function EdgeEditor({ x, y, onClose }: { x: number; y: number; onClose: () => void }) {
+  const edgeId = useGraph((s) => s.selectedEdgeId);
+  const nodes = useGraph((s) => s.nodes);
+  const setCallCap = useGraph((s) => s.setCallCap);
+  const removeEdge = useGraph((s) => s.removeEdge);
+
+  if (!edgeId) return null;
+  const [source, target] = edgeId.split("->");
+  const sourceNode = nodes.find((n) => n.id === source);
+  const targetNode = nodes.find((n) => n.id === target);
+  const sourceLabel = sourceNode?.name || source;
+  const targetLabel = targetNode?.name || target;
+  // The cap is meaningful only for a subagent (agent->agent) call. Tool-node
+  // grants are capped from the ToolsPanel, so those edges just offer delete.
+  const isSubagentCall = targetNode?.kind === "agent";
+  const caps =
+    (sourceNode?.tools as { tool_call_caps?: Record<string, number> } | null)
+      ?.tool_call_caps ?? {};
+  const currentCap = caps[subagentToolId(target)];
+
+  return (
+    <div className="ctx-menu edge-editor" style={{ top: y, left: x }}>
+      <div className="edge-editor-head">
+        <strong>{sourceLabel}</strong> → <strong>{targetLabel}</strong>
+      </div>
+      {isSubagentCall && (
+        <label className="field">
+          max calls per run
+          <input
+            type="number"
+            min={1}
+            value={currentCap ?? ""}
+            placeholder={`${DEFAULT_CALL_CAP} (default)`}
+            onChange={(e) => {
+              const v = e.target.value.trim();
+              if (v === "") return setCallCap(source, target, null);
+              const n = Math.max(1, Math.floor(Number(v)));
+              if (Number.isFinite(n)) setCallCap(source, target, n);
+            }}
+          />
+        </label>
+      )}
+      <button
+        className="ctx-item danger"
+        onClick={() => {
+          removeEdge(source, target);
+          onClose();
+        }}
+      >
+        ✕ Delete connection
+      </button>
     </div>
   );
 }
