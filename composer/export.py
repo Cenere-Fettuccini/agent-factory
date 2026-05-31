@@ -231,7 +231,8 @@ def _field_dump(node: GraphNode, which: str) -> dict[str, object]:
     if io is None:
         return {}
     schema = io[f"{which}_schema"]
-    return schema["fields"]
+    fields: dict[str, object] = schema["fields"]
+    return fields
 
 
 def _render_runtime_module(graph: Graph) -> str:
@@ -315,7 +316,8 @@ def export_graph(graph: Graph, dest: str, *, overwrite: bool = False) -> ExportR
 
     for agent_id, agent in built.items():
         module = _module_name(agent_id)
-        package = _package_name(graph.get(agent_id).module if graph.get(agent_id) else None)
+        agent_node = graph.get(agent_id)
+        package = _package_name(agent_node.module if agent_node else None)
         folder = destination / package if package else destination
         folder.mkdir(parents=True, exist_ok=True)
 

@@ -207,7 +207,7 @@ def resolve(graph: Graph) -> Graph:
         if node.kind == "tool" or node.policy is not None:
             continue
         tools = node.tools or {}
-        grants = list(tools.get("tool_grants", []))
+        grant_ids = list(tools.get("tool_grants", []))
         caps = dict(tools.get("tool_call_caps", {}))
 
         try:
@@ -216,8 +216,8 @@ def resolve(graph: Graph) -> Graph:
             chain = DEFAULT_MAX_RECURSION
         policy: dict[str, object] = {"max_recursion_depth": max(1, chain)}
 
-        if grants:
-            max_tool_calls = sum(caps.get(t, DEFAULT_CALL_CAP) for t in grants)
+        if grant_ids:
+            max_tool_calls = sum(caps.get(t, DEFAULT_CALL_CAP) for t in grant_ids)
             policy["max_tool_calls"] = max_tool_calls
             # The model needs a turn to read each tool result, plus one to answer.
             policy["max_steps"] = max(8, max_tool_calls + 1)
