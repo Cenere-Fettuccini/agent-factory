@@ -21,14 +21,15 @@ jobs:
         with:
           python-version: "3.11"
 
-      - run: uv pip install build twine --system
+      - run: uv venv
+      - run: uv pip install build twine
 
       - name: Build wheel and sdist
-        run: python -m build
+        run: uv run python -m build
 
       - name: Publish to GitHub Packages
         run: |
-          twine upload \
+          uv run twine upload \
             --repository-url https://pypi.pkg.github.com/${{ github.repository_owner }} \
             --username ${{ github.actor }} \
             --password ${{ secrets.GITHUB_TOKEN }} \

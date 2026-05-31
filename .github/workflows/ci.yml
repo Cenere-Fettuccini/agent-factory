@@ -22,8 +22,9 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - run: uv pip install -e ".[dev]" --system
-      - run: pytest
+      - run: uv venv
+      - run: uv pip install -e ".[dev]"
+      - run: uv run pytest
 
   lint:
     name: Lint & typecheck
@@ -33,9 +34,10 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.11"
-      - run: uv pip install -e ".[dev]" --system
-      - run: ruff check .
-      - run: mypy agentfactory composer
+      - run: uv venv
+      - run: uv pip install -e ".[dev]"
+      - run: uv run ruff check .
+      - run: uv run mypy agentfactory composer
 
   frontend:
     name: Frontend typecheck & build
