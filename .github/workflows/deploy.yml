@@ -10,6 +10,9 @@ permissions:
   pages: write
   id-token: write
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 # Only one deploy runs at a time; a queued run waits rather than cancelling,
 # so a push mid-deploy doesn't leave Pages in a half-updated state.
 concurrency:
