@@ -153,3 +153,53 @@ def test_exported_tool_stub_raises(tmp_path: Path) -> None:
             tool.callable(query="x")
     finally:
         TOOLS.clear()
+
+
+def test_exported_python_import_binding_registers_real_callable(tmp_path: Path) -> None:
+    impl = tmp_path / "impl.py"
+    impl.write_text(
+        "def web_search(query):\n"
+        "    return {'results': [query.upper()]}\n",
+        encoding="utf-8",
+    )
+    td = ToolDef.model_validate(
+        {
+            "id": "web-search",
+            "binding": {
+                "kind": "python_import",
+                "module": "impl",
+                "callable": "web_search",
+            },
+            "args": {"query": {"type_key": "text"}},
+            "returns": {"results": {"type_key": "json"}},
+        }
+    )
+    g = resolve(
+        Graph.model_validate(
+            {
+                "nodes": [
+                    {
+                        "id": "searcher",
+                        "description": "search",
+                        "tools": {"tool_grants": ["web-search"]},
+                    }
+                ],
+                "tool_defs": [td.model_dump()],
+            }
+        )
+    )
+    dest = tmp_path / "pkg"
+    export_graph(g, str(dest))
+
+    code = (
+        "import importlib.util, sys;"
+        f"sys.path.insert(0, r'{tmp_path}');"
+        f"spec=importlib.util.spec_from_file_location('expkg', r'{dest / '__init__.py'}');"
+        "m=importlib.util.module_from_spec(spec); sys.modules['expkg']=m;"
+        "spec.loader.exec_module(m);"
+        "from agentfactory.catalog.tools import TOOLS;"
+        "print(TOOLS.get('web-search').callable('ok'))"
+    )
+    proc = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr
+    assert "OK" in proc.stdout

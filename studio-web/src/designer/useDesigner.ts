@@ -12,6 +12,7 @@ import {
   PROPOSAL_JSON_SCHEMA,
   describeCurrent,
   refineDesignerPrompt,
+  normalizeProposal,
   type CurrentDesign,
   type DesignProposal,
 } from "./proposalSchema";
@@ -168,7 +169,7 @@ export function useDesigner(): DesignerState {
         console.debug("[designer] raw model reply:", text);
         const parsed = JSON.parse(text) as DesignProposal;
         setStatus("ready");
-        return parsed;
+        return normalizeProposal(parsed, current);
       } catch (e) {
         // Grammar makes malformed JSON unlikely, but a parse/transport slip is
         // recoverable — surface it and stay ready for another try.

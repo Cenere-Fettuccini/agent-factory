@@ -77,6 +77,7 @@ function InnerCanvas() {
   const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [menu, setMenu] = useState<CanvasMenu | null>(null);
   const didFit = useRef(false);
+  const canvasRef = useRef<HTMLDivElement>(null);
 
   const errorByNode = useMemo(() => {
     const m = new Map<string, string>();
@@ -200,11 +201,12 @@ function InnerCanvas() {
   const onDrop = useCallback(
     (event: React.DragEvent) => {
       event.preventDefault();
-      if (event.dataTransfer.getData("application/agent-node") !== "1") return;
+      const kind = event.dataTransfer.getData("application/agent-node");
+      if (kind !== "agent" && kind !== "tool") return;
       const pos = screenToFlowPosition({ x: event.clientX, y: event.clientY });
       const laneIndex = laneIndexFromY(pos.y, store.layers.length);
       const layer = store.layers[laneIndex];
-      store.addNode(layer, clampPositionToLane(pos, laneIndex));
+      store.addNode(layer, clampPositionToLane(pos, laneIndex), kind);
     },
     [screenToFlowPosition, store]
   );
@@ -227,14 +229,41 @@ function InnerCanvas() {
   const addAgentHere = useCallback(
     (flow: { x: number; y: number }) => {
       const laneIndex = laneIndexFromY(flow.y, store.layers.length);
-      store.addNode(store.layers[laneIndex], clampPositionToLane(flow, laneIndex));
+      store.addNode(store.layers[laneIndex], clampPositionToLane(flow, laneIndex), "agent");
       setMenu(null);
     },
     [store]
   );
 
+  const focusCanvas = useCallback((event: React.MouseEvent) => {
+    const target = event.target as HTMLElement | null;
+    if (target?.closest("input, textarea, select, button, [contenteditable='true']")) return;
+    canvasRef.current?.focus({ preventScroll: true });
+  }, []);
+
+  const onCanvasKeyDown = useCallback((event: React.KeyboardEvent) => {
+    const target = event.target as HTMLElement | null;
+    if (target?.closest("input, textarea, select, button, [contenteditable='true']")) return;
+    if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+
+    const key = event.key.toLowerCase();
+    if (key === "z" && event.shiftKey) {
+      event.preventDefault();
+      useGraph.getState().redo();
+    } else if (key === "z" && !event.shiftKey) {
+      event.preventDefault();
+      useGraph.getState().undo();
+    }
+  }, []);
+
   return (
-    <>
+    <div
+      ref={canvasRef}
+      className="canvas-hotkeys"
+      tabIndex={0}
+      onMouseDownCapture={focusCanvas}
+      onKeyDown={onCanvasKeyDown}
+    >
     <ReactFlow
       nodes={rfNodes}
       edges={rfEdges}
@@ -288,10 +317,24 @@ function InnerCanvas() {
           <button className="ctx-item" onClick={() => addAgentHere(menu.flow)}>
             + Add agent here
           </button>
+          <button
+            className="ctx-item"
+            onClick={() => {
+              const laneIndex = laneIndexFromY(menu.flow.y, store.layers.length);
+              store.addNode(
+                store.layers[laneIndex],
+                clampPositionToLane(menu.flow, laneIndex),
+                "tool"
+              );
+              setMenu(null);
+            }}
+          >
+            + Add tool node here
+          </button>
         </div>
       </>
     )}
-    </>
+    </div>
   );
 }
 

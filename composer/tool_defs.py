@@ -78,6 +78,12 @@ def _model_name(tool_id: str, suffix: str) -> str:
 def tool_def_to_spec(td: ToolDef) -> ToolSpec:
     """Turn an authored ``ToolDef`` into a real (stub-backed) ``ToolSpec``."""
     _check_id(td.id)
+    if td.binding.kind == "python_import" and (
+        not td.binding.module or not td.binding.callable
+    ):
+        raise ToolDefError(
+            f"tool {td.id!r} uses python_import binding but module/callable is unset"
+        )
     arg_schema = _build_model(_model_name(td.id, "Args"), td.args)
     return_schema = (
         _build_model(_model_name(td.id, "Result"), td.returns)
@@ -134,14 +140,15 @@ def validate_tool_def(td: ToolDef) -> dict[str, Any]:
     }
 
 
-_TOOLS_MODULE_TEMPLATE = '''"""Auto-generated tool stubs for UI-authored tools.
+_TOOLS_MODULE_TEMPLATE = '''"""Auto-generated tool registrations for UI-authored tools.
 
-Each tool below was authored in Agent Studio with a typed signature but no body.
-Fill in each ``*_impl`` function with a real implementation. Until you do, calling
-the tool raises ``NotImplementedError``. This module registers the tools into the
-framework catalog on import, so the agent loaders next to it resolve their grants.
+Tools with ``python_import`` bindings are connected to existing project
+functions. Tools without bindings keep a typed placeholder that raises
+``NotImplementedError`` until filled in. This module registers the tools into
+the framework catalog on import, so the agent loaders next to it resolve grants.
 """
 
+import importlib
 from typing import Any
 
 from pydantic import create_model
@@ -173,6 +180,31 @@ def _stub(tool_id: str) -> Any:
     return _impl
 
 
+def _deferred(tool_id: str, message: str) -> Any:
+    def _impl(**kwargs: Any) -> Any:
+        raise RuntimeError(f"tool {{tool_id!r}} is not callable: {{message}}")
+
+    return _impl
+
+
+def _resolve_callable(td: dict[str, Any]) -> Any:
+    binding = td.get("binding") or {{"kind": "stub"}}
+    if binding.get("kind") != "python_import":
+        return _stub(td["id"])
+    module_name = binding.get("module")
+    callable_name = binding.get("callable")
+    if not module_name or not callable_name:
+        return _stub(td["id"])
+    # Resolve eagerly so the real callable's signature reaches pydantic_ai, but
+    # never let one missing/renamed target abort the whole package import — defer
+    # that failure to the moment the tool is actually called.
+    try:
+        module = importlib.import_module(module_name)
+        return getattr(module, callable_name)
+    except Exception as exc:  # noqa: BLE001 — surfaced when the tool is called
+        return _deferred(td["id"], f"{{module_name}}.{{callable_name}} ({{exc!r}})")
+
+
 def _model_name(tool_id: str, suffix: str) -> str:
     parts = tool_id.replace("-", "_").split("_")
     return "".join(p.capitalize() for p in parts if p) + suffix
@@ -194,7 +226,7 @@ for _td in _TOOL_DEFS:
             description=_td["description"],
             arg_schema=_args,
             return_schema=_ret,
-            callable=_stub(_td["id"]),
+            callable=_resolve_callable(_td),
         ),
     )
 '''

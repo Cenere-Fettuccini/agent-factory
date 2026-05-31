@@ -54,8 +54,8 @@ export const api = {
   nodeTypes: () => request<NodeTypes>("/node-types"),
   validateGraph: (graph: Graph) => post<ValidationResult>("/graph/validate", graph),
   resolve: (graph: Graph) => post<Graph>("/presets/resolve", graph),
-  preview: (node: GraphNode, tool_defs: ToolDef[]) =>
-    post<PreviewResult>("/agents/preview", { node, tool_defs }),
+  preview: (node: GraphNode, graph: Graph) =>
+    post<PreviewResult>("/agents/preview", { node, tool_defs: graph.tool_defs, graph }),
   validateTool: (toolDef: ToolDef) => post<ToolValidateResult>("/tools/validate", toolDef),
   dryRun: (graph: Graph) => post<DryRunResult>("/export/dry-run", graph),
   export: (graph: Graph, destination: string, overwrite: boolean) =>

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
+from agentfactory.catalog.models import MODELS
 from composer.schemas.graph import Graph
 
 DEFAULT_MAX_RECURSION = 2  # mirrors PolicyLayer.max_recursion_depth default
@@ -57,6 +58,30 @@ def validate_graph(graph: Graph) -> ValidationResult:
         seen.add(node.id)
 
     ids = set(graph.node_ids())
+    kinds = {node.id: node.kind for node in graph.nodes}
+
+    for td in graph.tool_defs:
+        if td.node_id is None:
+            continue
+        owner = graph.get(td.node_id)
+        if owner is None:
+            issues.append(
+                ValidationIssue(
+                    severity="error",
+                    code="dangling_tool_owner",
+                    message=f"tool {td.id!r} belongs to missing node {td.node_id!r}",
+                    node_id=td.node_id,
+                )
+            )
+        elif owner.kind != "tool":
+            issues.append(
+                ValidationIssue(
+                    severity="error",
+                    code="tool_owner_not_tool_node",
+                    message=f"tool {td.id!r} belongs to non-tool node {td.node_id!r}",
+                    node_id=td.node_id,
+                )
+            )
 
     # 2. Edge endpoints exist, and calls stay within a tier or cross to the next.
     adjacency: dict[str, list[str]] = {nid: [] for nid in ids}
@@ -71,9 +96,44 @@ def validate_graph(graph: Graph) -> ValidationResult:
                         edge=(edge.source, edge.target),
                     )
                 )
+        if kinds.get(edge.source) == "tool":
+            issues.append(
+                ValidationIssue(
+                    severity="error",
+                    code="tool_node_has_outgoing_call",
+                    message=f"tool node {edge.source!r} cannot call other nodes",
+                    node_id=edge.source,
+                    edge=(edge.source, edge.target),
+                )
+            )
         if edge.source in adjacency and edge.target in ids:
             adjacency[edge.source].append(edge.target)
             issues.extend(_check_adjacency(graph, edge.source, edge.target))
+
+    # 2b. A subagent call compiles to a tool grant, so an agent that calls others
+    # needs a tool-capable model. Only flagged when the caller's model is set
+    # explicitly to a catalogued model that can't use tools — an unset model is
+    # left to the Resolver, which only picks tool-capable tiers.
+    flagged_callers: set[str] = set()
+    for edge in graph.edges:
+        src = graph.get(edge.source)
+        if src is None or src.kind != "agent" or not src.model or src.id in flagged_callers:
+            continue
+        model_id = src.model.get("model_id")
+        if model_id and MODELS.contains(model_id) and not MODELS.get(model_id).supports_tools:
+            flagged_callers.add(src.id)
+            issues.append(
+                ValidationIssue(
+                    severity="error",
+                    code="caller_model_no_tools",
+                    message=(
+                        f"agent {edge.source!r} calls {edge.target!r}, but its model "
+                        f"{model_id!r} cannot use tools (a subagent call is a tool call)"
+                    ),
+                    node_id=edge.source,
+                    edge=(edge.source, edge.target),
+                )
+            )
 
     # 3. Recursion within declared limits (cycle detection with depth check).
     for cycle in _find_cycles(adjacency):

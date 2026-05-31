@@ -30,6 +30,11 @@ _HAIKU_WORDS = frozenset(
 )
 
 
+def subagent_tool_id(agent_id: str) -> str:
+    """Catalog id used when one agent calls another exported agent."""
+    return f"agentfactory.subagent.{agent_id}"
+
+
 def infer_model_id(description: str) -> str:
     """Pick a model tier from a one-line description. Defaults to the mid tier."""
     words = {w.strip(".,;:!?()").lower() for w in description.split()}
@@ -83,6 +88,8 @@ def resolve(graph: Graph) -> Graph:
     # 1. Per-node field defaults (only when unset). The node's tier biases the
     # model when its name is telling; otherwise the description decides.
     for node in resolved.nodes:
+        if node.kind == "tool":
+            continue
         if node.model is None:
             model_id = infer_model_for_layer(node.layer) or infer_model_id(
                 node.description
@@ -91,24 +98,55 @@ def resolve(graph: Graph) -> Graph:
         if node.io is None:
             node.io = _starter_io()
 
-    # 2. Propagate caller allowlists from edges: target allows its callers.
+    # 2. Propagate edge-derived wiring. Agent targets allow their callers and
+    # become callable as internal subagent tools. Tool-node targets grant their
+    # owned functions to the caller agent.
     callers: dict[str, list[str]] = {}
+    grants: dict[str, list[str]] = {}
+    node_kinds = {node.id: node.kind for node in resolved.nodes}
+    tools_by_node: dict[str, list[str]] = {}
+    for td in resolved.tool_defs:
+        if td.node_id:
+            tools_by_node.setdefault(td.node_id, []).append(td.id)
+
     for edge in resolved.edges:
-        callers.setdefault(edge.target, [])
-        if edge.source not in callers[edge.target]:
-            callers[edge.target].append(edge.source)
+        if node_kinds.get(edge.target) == "tool":
+            for tool_id in tools_by_node.get(edge.target, []):
+                grants.setdefault(edge.source, [])
+                if tool_id not in grants[edge.source]:
+                    grants[edge.source].append(tool_id)
+        else:
+            callers.setdefault(edge.target, [])
+            if edge.source not in callers[edge.target]:
+                callers[edge.target].append(edge.source)
+            grants.setdefault(edge.source, [])
+            tool_id = subagent_tool_id(edge.target)
+            if tool_id not in grants[edge.source]:
+                grants[edge.source].append(tool_id)
 
     for node in resolved.nodes:
-        incoming = callers.get(node.id)
-        if not incoming:
+        if node.kind == "tool":
             continue
+        incoming = callers.get(node.id)
         tools = dict(node.tools) if node.tools else {}
-        existing = list(tools.get("caller_allowlist", []))
-        for src in incoming:
-            if src not in existing:
-                existing.append(src)
-        tools["caller_allowlist"] = existing
-        node.tools = tools
+        changed = False
+        if incoming:
+            existing = list(tools.get("caller_allowlist", []))
+            for src in incoming:
+                if src not in existing:
+                    existing.append(src)
+            tools["caller_allowlist"] = existing
+            changed = True
+        node_grants = grants.get(node.id)
+        if node_grants:
+            existing_grants = list(tools.get("tool_grants", []))
+            for tool_id in node_grants:
+                if tool_id not in existing_grants:
+                    existing_grants.append(tool_id)
+            tools["tool_grants"] = existing_grants
+            changed = True
+        if changed:
+            node.tools = tools
 
     return resolved
 

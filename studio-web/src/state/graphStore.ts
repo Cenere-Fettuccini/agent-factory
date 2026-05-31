@@ -4,8 +4,9 @@
 // Two revision counters drive backend calls:
 //   structuralRev — bumped by adds, deletes, edges, tier changes -> triggers Resolve
 //   graphRev      — bumped by any change -> triggers Validate
-// Parameter edits (model pick, tool edits, description) bump only graphRev, so a
-// resolve never clobbers what the user is typing.
+// In-node field edits (model pick, description) bump only graphRev, so a resolve
+// never clobbers what the user is typing. Authoring or removing tool_defs bumps
+// structuralRev too, since tool nodes feed agent grants during Resolve.
 
 import { create } from "zustand";
 import type { DesignProposal } from "../designer/proposalSchema";
@@ -37,13 +38,15 @@ export function tierColor(index: number): string {
   return TIER_COLORS[((index % n) + n) % n];
 }
 
-function emptyNode(id: string, layer: string | null): GraphNode {
+function emptyNode(id: string, layer: string | null, kind: GraphNode["kind"] = "agent"): GraphNode {
   return {
+    kind,
     id,
     description: "",
     name: null,
     version: "0.1.0",
     tags: [],
+    module: null,
     layer,
     trigger: null,
     model: null,
@@ -61,6 +64,8 @@ interface GraphState {
   layers: string[];
   toolDefs: ToolDef[];
   positions: Record<string, NodePosition>;
+  undoStack: GraphSnapshot[];
+  redoStack: GraphSnapshot[];
 
   selectedNodeId: string | null;
   autoResolve: boolean;
@@ -72,12 +77,15 @@ interface GraphState {
   structuralRev: number;
   graphRev: number;
 
+  canUndo: () => boolean;
+  canRedo: () => boolean;
+
   // derived helpers
   toGraph: () => Graph;
   layerIndex: (layer: string | null) => number | null;
 
   // mutations
-  addNode: (layer: string, position: NodePosition) => void;
+  addNode: (layer: string, position: NodePosition, kind?: GraphNode["kind"]) => void;
   updateNode: (id: string, patch: Partial<GraphNode>) => void;
   setNodeLayer: (id: string, layer: string) => void;
   setTrigger: (id: string, trigger: TriggerKind | null) => void;
@@ -85,6 +93,8 @@ interface GraphState {
   setPosition: (id: string, pos: NodePosition) => void;
   addEdge: (source: string, target: string) => void;
   removeEdge: (source: string, target: string) => void;
+  undo: () => void;
+  redo: () => void;
 
   /** Apply a proposed delta. Returns false (a no-op) when there's nothing to change. */
   loadProposal: (proposal: DesignProposal) => boolean;
@@ -101,6 +111,15 @@ interface GraphState {
   setPreview: (preview: PreviewResult | null) => void;
   setDryRun: (dryRun: DryRunResult | null) => void;
   mergeResolved: (graph: Graph) => void;
+}
+
+interface GraphSnapshot {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  layers: string[];
+  toolDefs: ToolDef[];
+  positions: Record<string, NodePosition>;
+  selectedNodeId: string | null;
 }
 
 let counter = 0;
@@ -131,6 +150,71 @@ function sanitizeId(raw: string, used: Set<string>): string {
 const PROPOSAL_X_START = 80;
 const PROPOSAL_X_STEP = 320;
 const PROPOSAL_Y_OFFSET = 28;
+const HISTORY_LIMIT = 80;
+
+function cloneSnapshot(s: GraphState): GraphSnapshot {
+  return {
+    nodes: structuredClone(s.nodes),
+    edges: structuredClone(s.edges),
+    layers: [...s.layers],
+    toolDefs: structuredClone(s.toolDefs),
+    positions: structuredClone(s.positions),
+    selectedNodeId: s.selectedNodeId,
+  };
+}
+
+function sameGraph(a: GraphSnapshot, b: GraphSnapshot): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function hasStructuralDiff(a: GraphSnapshot, b: GraphSnapshot): boolean {
+  return (
+    JSON.stringify(a.nodes.map(({ id, layer }) => ({ id, layer }))) !==
+      JSON.stringify(b.nodes.map(({ id, layer }) => ({ id, layer }))) ||
+    JSON.stringify(a.nodes.map(({ id, kind }) => ({ id, kind }))) !==
+      JSON.stringify(b.nodes.map(({ id, kind }) => ({ id, kind }))) ||
+    JSON.stringify(a.edges) !== JSON.stringify(b.edges) ||
+    JSON.stringify(a.layers) !== JSON.stringify(b.layers) ||
+    JSON.stringify(a.toolDefs) !== JSON.stringify(b.toolDefs)
+  );
+}
+
+function withHistory(
+  s: GraphState,
+  patch: Partial<GraphState>
+): Partial<GraphState> {
+  const before = cloneSnapshot(s);
+  const after: GraphSnapshot = {
+    nodes: patch.nodes ?? before.nodes,
+    edges: patch.edges ?? before.edges,
+    layers: patch.layers ?? before.layers,
+    toolDefs: patch.toolDefs ?? before.toolDefs,
+    positions: patch.positions ?? before.positions,
+    selectedNodeId: "selectedNodeId" in patch ? patch.selectedNodeId ?? null : before.selectedNodeId,
+  };
+  if (sameGraph(before, after)) return {};
+  return {
+    ...patch,
+    undoStack: [...s.undoStack, before].slice(-HISTORY_LIMIT),
+    redoStack: [],
+  };
+}
+
+function restoreSnapshot(
+  s: GraphState,
+  snapshot: GraphSnapshot,
+  stacks: Pick<GraphState, "undoStack" | "redoStack">
+): Partial<GraphState> {
+  const current = cloneSnapshot(s);
+  return {
+    ...structuredClone(snapshot),
+    ...stacks,
+    preview: null,
+    dryRun: null,
+    structuralRev: hasStructuralDiff(current, snapshot) ? s.structuralRev + 1 : s.structuralRev,
+    graphRev: s.graphRev + 1,
+  };
+}
 
 export const useGraph = create<GraphState>((set, get) => ({
   nodes: [],
@@ -138,6 +222,8 @@ export const useGraph = create<GraphState>((set, get) => ({
   layers: [...DEFAULT_LAYERS],
   toolDefs: [],
   positions: {},
+  undoStack: [],
+  redoStack: [],
 
   selectedNodeId: null,
   autoResolve: true,
@@ -160,33 +246,37 @@ export const useGraph = create<GraphState>((set, get) => ({
     return i === -1 ? null : i;
   },
 
-  addNode: (layer, position) =>
+  canUndo: () => get().undoStack.length > 0,
+  canRedo: () => get().redoStack.length > 0,
+
+  addNode: (layer, position, kind = "agent") =>
     set((s) => {
       const id = nextId(new Set(s.nodes.map((n) => n.id)));
-      return {
-        nodes: [...s.nodes, emptyNode(id, layer)],
+      return withHistory(s, {
+        nodes: [...s.nodes, emptyNode(id, layer, kind)],
         positions: { ...s.positions, [id]: position },
         selectedNodeId: id,
         structuralRev: s.structuralRev + 1,
         graphRev: s.graphRev + 1,
-      };
+      });
     }),
 
   updateNode: (id, patch) =>
-    set((s) => ({
-      nodes: s.nodes.map((n) => (n.id === id ? { ...n, ...patch } : n)),
+    set((s) => withHistory(s, {
+        nodes: s.nodes.map((n) => (n.id === id ? { ...n, ...patch } : n)),
+      structuralRev: "kind" in patch ? s.structuralRev + 1 : s.structuralRev,
       graphRev: s.graphRev + 1,
     })),
 
   setNodeLayer: (id, layer) =>
-    set((s) => ({
+    set((s) => withHistory(s, {
       nodes: s.nodes.map((n) => (n.id === id ? { ...n, layer } : n)),
       structuralRev: s.structuralRev + 1,
       graphRev: s.graphRev + 1,
     })),
 
   setTrigger: (id, trigger) =>
-    set((s) => ({
+    set((s) => withHistory(s, {
       nodes: s.nodes.map((n) => (n.id === id ? { ...n, trigger } : n)),
       graphRev: s.graphRev + 1,
     })),
@@ -195,57 +285,85 @@ export const useGraph = create<GraphState>((set, get) => ({
     set((s) => {
       const positions = { ...s.positions };
       delete positions[id];
-      return {
+      return withHistory(s, {
         nodes: s.nodes.filter((n) => n.id !== id),
         edges: s.edges.filter((e) => e.source !== id && e.target !== id),
         positions,
         selectedNodeId: s.selectedNodeId === id ? null : s.selectedNodeId,
         structuralRev: s.structuralRev + 1,
         graphRev: s.graphRev + 1,
-      };
+      });
     }),
 
   setPosition: (id, pos) =>
-    set((s) => ({ positions: { ...s.positions, [id]: pos } })),
+    set((s) => withHistory(s, { positions: { ...s.positions, [id]: pos } })),
 
   addEdge: (source, target) =>
     set((s) => {
       if (source === target) return {};
       if (s.edges.some((e) => e.source === source && e.target === target)) return {};
-      return {
+      return withHistory(s, {
         edges: [...s.edges, { source, target }],
         structuralRev: s.structuralRev + 1,
         graphRev: s.graphRev + 1,
-      };
+      });
     }),
 
   removeEdge: (source, target) =>
-    set((s) => ({
+    set((s) => withHistory(s, {
       edges: s.edges.filter((e) => !(e.source === source && e.target === target)),
       structuralRev: s.structuralRev + 1,
       graphRev: s.graphRev + 1,
     })),
 
+  undo: () =>
+    set((s) => {
+      const previous = s.undoStack[s.undoStack.length - 1];
+      if (!previous) return {};
+      return restoreSnapshot(s, previous, {
+        undoStack: s.undoStack.slice(0, -1),
+        redoStack: [...s.redoStack, cloneSnapshot(s)].slice(-HISTORY_LIMIT),
+      });
+    }),
+
+  redo: () =>
+    set((s) => {
+      const next = s.redoStack[s.redoStack.length - 1];
+      if (!next) return {};
+      return restoreSnapshot(s, next, {
+        undoStack: [...s.undoStack, cloneSnapshot(s)].slice(-HISTORY_LIMIT),
+        redoStack: s.redoStack.slice(0, -1),
+      });
+    }),
+
   addLayer: (name) =>
     set((s) =>
       s.layers.includes(name)
         ? {}
-        : { layers: [...s.layers, name], structuralRev: s.structuralRev + 1 }
+        : withHistory(s, {
+            layers: [...s.layers, name],
+            structuralRev: s.structuralRev + 1,
+            graphRev: s.graphRev + 1,
+          })
     ),
 
   renameLayer: (oldName, newName) =>
     set((s) => {
       if (!s.layers.includes(oldName) || s.layers.includes(newName)) return {};
-      return {
+      return withHistory(s, {
         layers: s.layers.map((l) => (l === oldName ? newName : l)),
         nodes: s.nodes.map((n) => (n.layer === oldName ? { ...n, layer: newName } : n)),
         structuralRev: s.structuralRev + 1,
         graphRev: s.graphRev + 1,
-      };
+      });
     }),
 
   setToolDefs: (defs) =>
-    set((s) => ({ toolDefs: defs, graphRev: s.graphRev + 1 })),
+    set((s) => withHistory(s, {
+      toolDefs: defs,
+      structuralRev: s.structuralRev + 1,
+      graphRev: s.graphRev + 1,
+    })),
 
   select: (id) => set({ selectedNodeId: id }),
   toggleAutoResolve: () => set((s) => ({ autoResolve: !s.autoResolve })),
@@ -350,9 +468,17 @@ export const useGraph = create<GraphState>((set, get) => ({
           ...n,
           description: p.description,
           name: p.name?.trim() ? p.name.trim() : null,
+          module: p.module?.trim() ? p.module.trim() : n.module,
           layer,
+          // Preserve the existing trigger when the proposal omits it; clear it
+          // only on an explicit "none". Otherwise re-proposing an agent to tweak
+          // its description silently drops its entry-point trigger.
           trigger:
-            p.trigger === "user_query" || p.trigger === "auto_action" ? p.trigger : null,
+            p.trigger === "user_query" || p.trigger === "auto_action"
+              ? p.trigger
+              : p.trigger === "none"
+                ? null
+                : n.trigger,
         });
       }
 
@@ -388,6 +514,7 @@ export const useGraph = create<GraphState>((set, get) => ({
         const node = emptyNode(id, ri >= 0 ? layers[ri] : null);
         node.description = a.description;
         node.name = a.name?.trim() ? a.name.trim() : null;
+        node.module = a.module?.trim() ? a.module.trim() : null;
         node.trigger =
           a.trigger === "user_query" || a.trigger === "auto_action" ? a.trigger : null;
         newNodes.push(node);
@@ -432,7 +559,7 @@ export const useGraph = create<GraphState>((set, get) => ({
         edges.push({ source, target });
       }
 
-      return {
+      return withHistory(s, {
         layers,
         nodes,
         edges,
@@ -442,7 +569,7 @@ export const useGraph = create<GraphState>((set, get) => ({
         dryRun: null,
         structuralRev: s.structuralRev + 1,
         graphRev: s.graphRev + 1,
-      };
+      });
     });
     return true;
   },

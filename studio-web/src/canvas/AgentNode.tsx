@@ -30,6 +30,10 @@ export function AgentNode({ data, selected }: NodeProps) {
   const setTrigger = useGraph((s) => s.setTrigger);
   const setNodeLayer = useGraph((s) => s.setNodeLayer);
   const removeNode = useGraph((s) => s.removeNode);
+  const canUndo = useGraph((s) => s.undoStack.length > 0);
+  const canRedo = useGraph((s) => s.redoStack.length > 0);
+  const undo = useGraph((s) => s.undo);
+  const redo = useGraph((s) => s.redo);
   const preview = useGraph((s) => s.preview);
   const issues = useGraph((s) => s.issues);
 
@@ -38,6 +42,7 @@ export function AgentNode({ data, selected }: NodeProps) {
   const tierIdx = layerIndex(n.layer);
   const isTopTier = tierIdx === 0;
   const isToolTier = tierIdx !== null && tierIdx === layers.length - 1;
+  const isToolNode = n.kind === "tool";
   const accent = tierColor(tierIdx ?? 0);
 
   const modelId =
@@ -72,6 +77,24 @@ export function AgentNode({ data, selected }: NodeProps) {
         <span className="cnode-tier">{n.layer ?? "—"}</span>
         <button
           className="cnode-x nodrag"
+          onClick={undo}
+          disabled={!canUndo}
+          title="Undo"
+          aria-label="Undo"
+        >
+          Undo
+        </button>
+        <button
+          className="cnode-x nodrag"
+          onClick={redo}
+          disabled={!canRedo}
+          title="Redo"
+          aria-label="Redo"
+        >
+          Redo
+        </button>
+        <button
+          className="cnode-x nodrag"
           onClick={() => removeNode(n.id)}
           title="Delete agent"
           aria-label="Delete agent"
@@ -92,11 +115,33 @@ export function AgentNode({ data, selected }: NodeProps) {
           </label>
 
           <label className="field">
+            kind
+            <select
+              value={n.kind}
+              onChange={(e) =>
+                updateNode(n.id, { kind: e.target.value as GraphNode["kind"] })
+              }
+            >
+              <option value="agent">agent</option>
+              <option value="tool">tool node</option>
+            </select>
+          </label>
+
+          <label className="field">
             description
             <textarea
               value={n.description}
               placeholder="One line — used to auto-pick defaults."
               onChange={(e) => updateNode(n.id, { description: e.target.value })}
+            />
+          </label>
+
+          <label className="field">
+            module / export folder
+            <input
+              value={n.module ?? ""}
+              placeholder="paper_research"
+              onChange={(e) => updateNode(n.id, { module: e.target.value || null })}
             />
           </label>
 
@@ -111,28 +156,30 @@ export function AgentNode({ data, selected }: NodeProps) {
             </select>
           </label>
 
-          <label className="field">
-            model
-            <select
-              value={modelId}
-              onChange={(e) =>
-                updateNode(
-                  n.id,
-                  e.target.value ? { model: { model_id: e.target.value } } : { model: null }
-                )
-              }
-            >
-              <option value="">(auto-resolve)</option>
-              {(catalogs?.models ?? []).map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.id}
-                  {m.supports_tools ? "" : " (no tools)"}
-                </option>
-              ))}
-            </select>
-          </label>
+          {!isToolNode && (
+            <label className="field">
+              model
+              <select
+                value={modelId}
+                onChange={(e) =>
+                  updateNode(
+                    n.id,
+                    e.target.value ? { model: { model_id: e.target.value } } : { model: null }
+                  )
+                }
+              >
+                <option value="">(auto-resolve)</option>
+                {(catalogs?.models ?? []).map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.id}
+                    {m.supports_tools ? "" : " (no tools)"}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
 
-          {isTopTier && (
+          {!isToolNode && isTopTier && (
             <label className="field">
               trigger (entry point)
               <select
@@ -146,7 +193,7 @@ export function AgentNode({ data, selected }: NodeProps) {
             </label>
           )}
 
-          {isToolTier && <ToolsPanel node={n} />}
+          {(isToolNode || isToolTier) && <ToolsPanel node={n} />}
 
           {nodeIssues.map((iss, i) => (
             <div className="issue" key={i}>

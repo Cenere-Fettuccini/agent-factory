@@ -3,16 +3,19 @@
 // dropdowns bind to /catalogs and forms to /node-types fetched at runtime.
 
 export type TriggerKind = "user_query" | "auto_action";
+export type NodeKind = "agent" | "tool";
 
 /** A partial layer config dict. `null`/absent means "unset" — the Resolver fills it. */
 export type LayerConfig = Record<string, unknown> | null;
 
 export interface GraphNode {
+  kind: NodeKind;
   id: string;
   description: string;
   name: string | null;
   version: string;
   tags: string[];
+  module: string | null;
   layer: string | null;
   trigger: TriggerKind | null;
   model: LayerConfig;
@@ -37,6 +40,13 @@ export interface ToolDefField {
 export interface ToolDef {
   id: string;
   description: string;
+  node_id: string | null;
+  binding: {
+    kind: "stub" | "python_import";
+    module: string | null;
+    callable: string | null;
+    is_async: boolean;
+  };
   args: Record<string, ToolDefField>;
   returns: Record<string, ToolDefField> | null;
 }

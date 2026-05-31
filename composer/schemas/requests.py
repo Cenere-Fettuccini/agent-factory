@@ -24,3 +24,4 @@ class PreviewRequest(BaseModel):
 
     node: GraphNode
     tool_defs: list[ToolDef] = Field(default_factory=list)
+    graph: Graph | None = None

@@ -31,6 +31,8 @@ def node_to_agent(node: GraphNode) -> Agent:
 
     ``model`` and ``io`` are required to build; everything else defaults.
     """
+    if node.kind != "agent":
+        raise NodeBuildError(node.id, f"node kind {node.kind!r} is not an agent")
     if node.model is None:
         raise NodeBuildError(node.id, "node has no model layer; resolve or set it first")
     if node.io is None:

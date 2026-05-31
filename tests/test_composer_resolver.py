@@ -55,9 +55,33 @@ def test_resolve_propagates_caller_allowlist() -> None:
     b = next(n for n in g.nodes if n.id == "b")
     assert b.tools is not None
     assert b.tools["caller_allowlist"] == ["a"]
-    # The caller itself gets no inbound edges, so no allowlist is forced.
+    # The caller gets the callee as an internal subagent tool.
     a = next(n for n in g.nodes if n.id == "a")
-    assert a.tools is None
+    assert a.tools == {"tool_grants": ["agentfactory.subagent.b"]}
+
+
+def test_resolve_grants_tools_from_connected_tool_node() -> None:
+    g = resolve(
+        Graph.model_validate(
+            {
+                "nodes": [{"id": "a"}, {"id": "toolbox", "kind": "tool"}],
+                "edges": [{"source": "a", "target": "toolbox"}],
+                "tool_defs": [
+                    {
+                        "id": "web-search",
+                        "node_id": "toolbox",
+                        "args": {"query": {"type_key": "text"}},
+                    }
+                ],
+            }
+        )
+    )
+    a = next(n for n in g.nodes if n.id == "a")
+    toolbox = next(n for n in g.nodes if n.id == "toolbox")
+    assert a.tools is not None
+    assert a.tools["tool_grants"] == ["web-search"]
+    assert toolbox.model is None
+    assert toolbox.io is None
 
 
 def test_layer_biases_model() -> None:

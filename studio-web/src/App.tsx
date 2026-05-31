@@ -76,7 +76,7 @@ export function App() {
     const node = s.nodes.find((n) => n.id === s.selectedNodeId);
     if (!node) return;
     try {
-      s.setPreview(await api.preview(node, s.toGraph().tool_defs));
+      s.setPreview(await api.preview(node, s.toGraph()));
     } catch {
       /* ignore preview transport errors */
     }

@@ -37,7 +37,7 @@ def post_presets_resolve(graph: Graph) -> Graph:
 @router.post("/agents/preview")
 def post_agents_preview(request: PreviewRequest) -> PreviewResult:
     """Build one agent and return its frozen describe-output."""
-    return preview_agent(request.node, request.tool_defs)
+    return preview_agent(request.node, request.tool_defs, request.graph)
 
 
 @router.post("/tools/validate")

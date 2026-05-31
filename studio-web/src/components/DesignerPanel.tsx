@@ -69,6 +69,7 @@ export function DesignerPanel() {
       agents: s.nodes.map((n) => ({
         id: n.id,
         description: n.description,
+        module: n.module,
         layer: n.layer,
         trigger: n.trigger,
       })),

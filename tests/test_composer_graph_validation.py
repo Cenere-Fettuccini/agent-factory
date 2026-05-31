@@ -124,6 +124,32 @@ def test_tierless_graph_skips_adjacency_check() -> None:
     assert not any(i.code == "non_adjacent_call" for i in result.issues)
 
 
+def test_tool_def_must_belong_to_tool_node() -> None:
+    result = validate_graph(
+        _g(
+            {
+                "nodes": [{"id": "a"}],
+                "tool_defs": [{"id": "web-search", "node_id": "a"}],
+            }
+        )
+    )
+    assert not result.valid
+    assert any(i.code == "tool_owner_not_tool_node" for i in result.issues)
+
+
+def test_tool_node_cannot_call_out() -> None:
+    result = validate_graph(
+        _g(
+            {
+                "nodes": [{"id": "toolbox", "kind": "tool"}, {"id": "a"}],
+                "edges": [{"source": "toolbox", "target": "a"}],
+            }
+        )
+    )
+    assert not result.valid
+    assert any(i.code == "tool_node_has_outgoing_call" for i in result.issues)
+
+
 def test_cycle_exceeding_limit_is_error() -> None:
     result = validate_graph(
         _g(

@@ -13,6 +13,8 @@ from pydantic import BaseModel
 
 from composer.build import NodeBuildError, node_to_agent
 from composer.graph_validation import ValidationResult, validate_graph
+from composer.network_tools import registered_network_tools
+from composer.resolver import resolve as resolve_graph
 from composer.schemas.graph import Graph, GraphNode, ToolDef
 from composer.tool_defs import ToolDefError, registered_tools
 
@@ -41,16 +43,26 @@ class DryRunResult(BaseModel):
 
 
 def preview_agent(
-    node: GraphNode, tool_defs: Iterable[ToolDef] = ()
+    node: GraphNode, tool_defs: Iterable[ToolDef] = (), graph: Graph | None = None
 ) -> PreviewResult:
     """Build one agent and return its frozen describe-output.
 
     ``tool_defs`` are any UI-authored tools the node may grant; they are
     registered transiently so grants validate.
     """
+    if node.kind == "tool":
+        owned = [td.model_dump(mode="json") for td in tool_defs if td.node_id == node.id]
+        return PreviewResult(node_id=node.id, ok=True, agent={"tools": owned})
+
     try:
-        with registered_tools(tool_defs):
-            agent = node_to_agent(node)
+        if graph is None:
+            with registered_tools(tool_defs):
+                agent = node_to_agent(node)
+        else:
+            graph = resolve_graph(graph)
+            node = graph.get(node.id) or node
+            with registered_tools(graph.tool_defs), registered_network_tools(graph):
+                agent = node_to_agent(node)
     except (NodeBuildError, ToolDefError) as exc:
         return PreviewResult(node_id=node.id, ok=False, error=str(exc))
     return PreviewResult(
@@ -60,11 +72,15 @@ def preview_agent(
 
 def dry_run(graph: Graph) -> DryRunResult:
     """Structurally validate, then instantiate every node in memory."""
+    graph = resolve_graph(graph)
     structural = validate_graph(graph)
     nodes: list[DryRunNode] = []
     try:
-        with registered_tools(graph.tool_defs):
+        with registered_tools(graph.tool_defs), registered_network_tools(graph):
             for node in graph.nodes:
+                if node.kind == "tool":
+                    nodes.append(DryRunNode(node_id=node.id, ok=True))
+                    continue
                 try:
                     node_to_agent(node)
                     nodes.append(DryRunNode(node_id=node.id, ok=True))

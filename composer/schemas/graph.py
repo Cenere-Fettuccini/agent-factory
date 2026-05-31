@@ -15,6 +15,24 @@ from pydantic import BaseModel, ConfigDict, Field
 # request; ``auto_action`` agents are triggered automatically. Both resolve their
 # query down through the tiers.
 TriggerKind = Literal["user_query", "auto_action"]
+NodeKind = Literal["agent", "tool"]
+ToolBindingKind = Literal["stub", "python_import"]
+
+
+class ToolBinding(BaseModel):
+    """How an exported tool should find its implementation.
+
+    ``stub`` keeps today's behavior: export a typed placeholder that raises
+    until the user fills it in. ``python_import`` makes the exported package
+    register an existing project function immediately.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: ToolBindingKind = "stub"
+    module: str | None = None
+    callable: str | None = None
+    is_async: bool = False
 
 
 class ToolDefField(BaseModel):
@@ -43,6 +61,8 @@ class ToolDef(BaseModel):
 
     id: str
     description: str = ""
+    node_id: str | None = None
+    binding: ToolBinding = Field(default_factory=ToolBinding)
     args: dict[str, ToolDefField] = Field(default_factory=dict)
     returns: dict[str, ToolDefField] | None = None
 
@@ -52,11 +72,17 @@ class GraphNode(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    kind: NodeKind = "agent"
     id: str
     description: str = ""
     name: str | None = None
     version: str = "0.1.0"
     tags: list[str] = Field(default_factory=list)
+
+    # Functional grouping: exported as a subpackage/folder when present. This is
+    # intentionally separate from ``layer``: layers are execution-role tiers,
+    # modules are larger workflows such as ideation, planning, or paper analysis.
+    module: str | None = None
 
     # Network role: which tier this agent sits in (a name from ``Graph.layers``).
     # None means unassigned. ``trigger`` marks a top-tier entry point.

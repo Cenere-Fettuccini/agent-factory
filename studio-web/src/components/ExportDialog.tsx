@@ -14,9 +14,11 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
     setResult(null);
     try {
       const res = await api.export(toGraph(), destination, overwrite);
+      const shownFiles = res.files.slice(0, 12).join("\n");
+      const extra = res.files.length > 12 ? `\n...and ${res.files.length - 12} more` : "";
       setResult({
         kind: "ok",
-        text: `Wrote ${res.files.length} files to ${res.destination}\nAgents: ${res.agent_ids.join(", ")}`,
+        text: `Wrote ${res.files.length} files to ${res.destination}\n\n${shownFiles}${extra}\n\nAgents: ${res.agent_ids.join(", ")}`,
       });
     } catch (e) {
       // The API owns the filesystem — surface its refusal reason verbatim.
@@ -32,7 +34,8 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
       <div className="dialog" onClick={(e) => e.stopPropagation()}>
         <h2>Export project</h2>
         <p style={{ color: "var(--muted)", fontSize: 13, marginTop: 0 }}>
-          The backend writes the folder — enter an absolute path on the server host.
+          The backend writes the folder. Agents with a module/export folder are
+          grouped into matching subfolders.
         </p>
         <label className="field">
           destination (absolute path)
