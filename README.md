@@ -212,15 +212,12 @@ Start the AgentComposer API and Agent Studio UI together from the repo root:
 
 ```bash
 uv sync --extra api
-uv run uvicorn composer.app:app --reload &
-api_pid=$!
-trap 'kill "$api_pid"' EXIT
-
-(
-  cd studio-web
-  npm install
-  npm run dev
-)
+uv run uvicorn composer.app:app --reload
+```
+```bash
+cd studio-web
+npm install
+npm run dev
 ```
 
 Backend: `http://localhost:8000`
