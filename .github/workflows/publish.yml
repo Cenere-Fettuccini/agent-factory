@@ -18,6 +18,7 @@ jobs:
         with:
           python-version: "3.11"
 
+      - run: uv venv
       - run: uv pip install build twine
 
       - name: Build wheel and sdist
