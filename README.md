@@ -82,6 +82,56 @@ uv run ruff check .
 uv run mypy agentfactory
 ```
 
+## Use it in another project (private install)
+
+The repo and its package registry are **private**. The
+[`publish.yml`](.github/workflows/publish.yml) workflow publishes the wheel to
+**GitHub Packages** (`https://pypi.pkg.github.com/Cenere-Fettuccini`) whenever a
+`v*` tag is pushed, so a release is cut by tagging:
+
+```bash
+git tag v0.3.0 && git push origin v0.3.0
+```
+
+Installing from a private GitHub Packages index needs a **personal access
+token** with the `read:packages` scope (create one at GitHub → Settings →
+Developer settings → Tokens). In the consuming project:
+
+```bash
+# token-in-URL form; replace TOKEN with your read:packages PAT
+pip install agentfactory \
+  --index-url https://USERNAME:TOKEN@pypi.pkg.github.com/Cenere-Fettuccini/
+
+# with the composer HTTP backend too
+pip install "agentfactory[api]" \
+  --index-url https://USERNAME:TOKEN@pypi.pkg.github.com/Cenere-Fettuccini/
+```
+
+With **uv**, point an extra index at the registry and supply the token via env:
+
+```toml
+# pyproject.toml of the consuming project
+[[tool.uv.index]]
+name = "agentfactory"
+url = "https://pypi.pkg.github.com/Cenere-Fettuccini/"
+```
+
+```bash
+export UV_INDEX_AGENTFACTORY_USERNAME=USERNAME
+export UV_INDEX_AGENTFACTORY_PASSWORD=TOKEN   # read:packages PAT
+uv add agentfactory
+```
+
+> Never commit the token. Keep it in an environment variable, a `.netrc`, or
+> your CI's secret store — not in `pyproject.toml` or `requirements.txt`.
+
+Prefer no registry at all? The locally built wheel in `dist/` installs straight
+from a file path, no token needed:
+
+```bash
+pip install ./dist/agentfactory-0.3.0-py3-none-any.whl        # or [api]
+```
+
 ## Quick start
 
 ```python
