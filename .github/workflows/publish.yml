@@ -8,6 +8,11 @@ permissions:
   contents: read
   packages: write
 
+# setup-uv@v6 still bundles Node 20; opt its JS action into Node 24 to
+# clear the deprecation warning. Drop once setup-uv ships a Node 24 release.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   publish:
     runs-on: ubuntu-latest

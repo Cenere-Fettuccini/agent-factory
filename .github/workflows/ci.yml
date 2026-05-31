@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [main]
 
+# setup-uv@v6 (the latest major) still bundles Node 20; this opts its
+# JavaScript action into Node 24 to clear the deprecation warning. Drop
+# once setup-uv ships a Node 24-native release.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   test:
     name: Tests (Python ${{ matrix.python-version }})
