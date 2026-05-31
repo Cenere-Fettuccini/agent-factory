@@ -10,6 +10,13 @@ permissions:
   pages: write
   id-token: write
 
+# The GitHub Pages actions (configure-pages, upload-pages-artifact,
+# deploy-pages) still bundle Node 20 in their latest majors; opt their JS
+# actions into Node 24 to clear the deprecation warnings. Drop once they
+# ship Node 24-native releases.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 # Only one deploy runs at a time; a queued run waits rather than cancelling,
 # so a push mid-deploy doesn't leave Pages in a half-updated state.
 concurrency:
