@@ -1,7 +1,14 @@
-# Agent Studio UI (Era III)
+# Agent Studio UI — the frontend (Era III)
 
-A ComfyUI-style web canvas for authoring **layered agent networks** over the
-AgentComposer API. The framework becomes usable without writing Python.
+The strongly-typed visual frontend for AgentFactory: comprehensively design a
+**layered agent network** on a ComfyUI-style canvas, then **export it directly
+into a project that works out of the box** -- an importable folder with zero
+runtime dependency on the backend. The framework becomes usable without writing
+Python.
+
+It is a thin shell over the AgentComposer API, so it is not the only possible
+frontend -- it's the reference one. Anything that speaks HTTP to the same backend
+can author equivalent networks.
 
 The canvas is not six internal knobs per agent -- it is a network of agent
 **roles** arranged in horizontal **tiers** (e.g. *Refinement -> Orchestrator ->

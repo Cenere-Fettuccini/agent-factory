@@ -1,17 +1,50 @@
 # AgentFactory
 
-A typed, layered framework for building well-bounded agents on top of
-[PydanticAI](https://ai.pydantic.dev/), with native
-[OpenTelemetry](https://opentelemetry.io/) tracing using
-[OpenInference](https://github.com/Arize-ai/openinference) semantic
-conventions.
+AgentFactory makes an agent a **strongly-typed, definitive contract** — and then
+gives you two ways to author networks of them: a backend you can drive directly,
+and a visual canvas that exports a project which runs out of the box. It has
+three parts, each a complete deliverable on its own:
 
-An `Agent` is a **frozen, typed contract** composed of six layer sub-models
-plus an identity block:
+1. **`agentfactory/` — the library.** A definitive, strongly-typed way to
+   *define* an agent. Each agent knows exactly **what it connects to**, **who is
+   allowed to connect to it**, **how it logs**, **how communication works**, and
+   **what it has access to** — all settled at construction time, not discovered
+   at runtime.
+2. **`composer/` — the backend.** A stateless HTTP service for agent
+   composition. The bundled frontend talks to it, but it stands alone: drive it
+   from `curl`, a CI job, or a frontend you write yourself — anything that speaks
+   HTTP can author agents against it.
+3. **`studio-web/` — the frontend.** A strongly-typed visual canvas that
+   comprehensively designs the agentic network and **exports it directly into a
+   project that works out of the box**, with zero runtime dependency on the
+   backend.
+
+The chain only ever points one way: **library → backend → canvas**. The library
+never imports the backend; the backend never imports the frontend.
+
+## The contract (the library)
+
+Built on [PydanticAI](https://ai.pydantic.dev/), with native
+[OpenTelemetry](https://opentelemetry.io/) tracing using
+[OpenInference](https://github.com/Arize-ai/openinference) semantic conventions.
+
+An `Agent` is a **frozen, typed contract** composed of six layer sub-models plus
+an identity block — together they pin down everything about how the agent
+connects, communicates, and is observed:
 
 ```
 identity → model → io → tools → policy → errors → telemetry
 ```
+
+| Layer | What it nails down |
+| --- | --- |
+| `identity` | Who this agent is — `id`, `name`, `version`, `description`, `tags`. |
+| `model` | Which catalogued model it runs on, and how it's prompted. |
+| `io` | **How communication works** — the typed input/output schemas it speaks. |
+| `tools` | **What it has access to** (`tool_grants`) and **who may call it** (`caller_allowlist`). |
+| `policy` | The envelope it runs inside — timeouts, retries, token and recursion ceilings. |
+| `errors` | How each error class is handled — raise, retry, or log. |
+| `telemetry` | **How it logs** — service name, sinks, redaction, sampling. |
 
 Each layer is an independent Pydantic model that validates its own fields and
 cross-checks them against the framework's catalogs at construction time.
@@ -128,11 +161,14 @@ trace.get_tracer_provider().add_span_processor(
 Because span attributes follow OpenInference conventions, Langfuse, Phoenix,
 Arize, and Logfire all render the spans natively — no translation layer.
 
-## AgentComposer API (Era II)
+## AgentComposer API — the backend (Era II)
 
-A stateless HTTP authoring backend lives in the `composer/` package. It imports
-the framework and exposes its catalogs, layer schemas, and validation over HTTP
-— the framework never imports `composer`. Install the API extra and run it:
+The backend for agent composition lives in the `composer/` package. It imports
+the framework and exposes its catalogs, layer schemas, validation, and export
+over HTTP — the framework never imports `composer`. The bundled `studio-web`
+frontend is built on it, but it is **not coupled to any frontend**: author
+directly from `curl`, a script, or your own UI — anything that speaks HTTP can
+build agents against the same contract. Install the API extra and run it:
 
 ```bash
 uv sync --extra api
@@ -155,16 +191,20 @@ server holds no session state. Endpoints:
 The exported tree imports with only `agentfactory` installed — zero runtime
 dependency on the API.
 
-## Agent Studio UI (Era III)
+## Agent Studio UI — the frontend (Era III)
 
-A ComfyUI-style web canvas for authoring **layered agent networks** lives in
-`studio-web/`. Agents are arranged in horizontal **tiers** (e.g. refinement →
-orchestrator → tools); a tier may only call the one directly below it, so the
-path from a trigger to query resolution is explicit. You set a model per agent
-and define tools on the tool tier — IO, wiring, and caller permissions
-auto-resolve. The UI is a thin shell over the AgentComposer API: no catalog
-value or layer field is hardcoded, validation is the backend's, and `/export`
-owns the filesystem. See [studio-web/README.md](studio-web/README.md) to run it.
+A strongly-typed, ComfyUI-style web canvas for visually designing **layered
+agent networks** lives in `studio-web/`. Agents are arranged in horizontal
+**tiers** (e.g. refinement → orchestrator → tools); a tier may only call the one
+directly below it, so the path from a trigger to query resolution is explicit.
+You set a model per agent and define tools on the tool tier — IO, wiring, and
+caller permissions auto-resolve. The end result is **one click to export a
+project that works out of the box**: an importable folder with zero runtime
+dependency on the backend.
+
+The UI is a thin shell over the AgentComposer API: no catalog value or layer
+field is hardcoded, validation is the backend's, and `/export` owns the
+filesystem. See [studio-web/README.md](studio-web/README.md) to run it.
 
 ### App startup script
 
@@ -204,5 +244,4 @@ No extra startup step — it ships with the frontend. Two things to know:
 
 - Importing existing Langfuse-traced runs back into the contract.
 
-See [docs/eras.html](docs/eras.html) for the full three-era roadmap. See
-[docs/HANDOFF.md](docs/HANDOFF.md) for the Era I implementation spec.
+See [docs/eras.html](docs/eras.html) for the full three-era roadmap.
