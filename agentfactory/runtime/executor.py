@@ -196,8 +196,8 @@ def _usage_limits(agent: Agent) -> UsageLimits:
     # (max_steps still bounds the request loop).
     return UsageLimits(
         request_limit=agent.policy.max_steps,
-        request_tokens_limit=agent.policy.max_input_tokens,
-        response_tokens_limit=agent.policy.max_output_tokens,
+        input_tokens_limit=agent.policy.max_input_tokens,
+        output_tokens_limit=agent.policy.max_output_tokens,
     )
 
 
@@ -280,10 +280,10 @@ async def run(
         span.set_attribute(otel.OUTPUT_VALUE, json.dumps(output_data, default=str))
 
         usage = result.usage()
-        if usage.request_tokens is not None:
-            span.set_attribute(otel.LLM_TOKEN_COUNT_PROMPT, usage.request_tokens)
-        if usage.response_tokens is not None:
-            span.set_attribute(otel.LLM_TOKEN_COUNT_COMPLETION, usage.response_tokens)
+        if usage.input_tokens is not None:
+            span.set_attribute(otel.LLM_TOKEN_COUNT_PROMPT, usage.input_tokens)
+        if usage.output_tokens is not None:
+            span.set_attribute(otel.LLM_TOKEN_COUNT_COMPLETION, usage.output_tokens)
         if usage.total_tokens is not None:
             span.set_attribute(otel.LLM_TOKEN_COUNT_TOTAL, usage.total_tokens)
 

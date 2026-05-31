@@ -192,11 +192,13 @@ def test_recursion_guard_enforces_depth() -> None:
     """Nested runs past the entrypoint's max_recursion_depth raise PolicyExceeded."""
     agent = _agent(policy=PolicyLayer(max_recursion_depth=1))
     # depth 0 (entry) fixes the limit; depth 1 is the one allowed subagent level.
-    with executor._recursion_guard(agent):
-        with executor._recursion_guard(agent):
-            with pytest.raises(executor.PolicyExceeded, match="max_recursion_depth"):
-                with executor._recursion_guard(agent):
-                    pass
+    with (
+        executor._recursion_guard(agent),
+        executor._recursion_guard(agent),
+        pytest.raises(executor.PolicyExceeded, match="max_recursion_depth"),
+        executor._recursion_guard(agent),
+    ):
+        pass
 
 
 async def test_async_tool_charged_against_budget() -> None:
